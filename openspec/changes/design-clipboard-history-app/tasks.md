@@ -19,25 +19,25 @@
 - [x] 3.1 Design the information architecture for the main history window, quick-access popup, preview panel, settings, and tray interactions
 - [x] 3.2 Define keyboard shortcuts, context menu actions, and focus behavior for fast clipboard recall
 - [x] 3.3 Create the initial visual direction for light and dark themes with a premium desktop utility feel
-- [ ] 3.4 Define onboarding and permission guidance flows for each supported operating system
+- [x] 3.4 Define onboarding and permission guidance flows for each supported operating system
 
 ## 4. Core Local Features
 
 - [x] 4.1 Implement clipboard capture for the selected desktop platform and persist supported item metadata
 - [x] 4.2 Implement the main history list with previews, detail view, and re-copy actions
-- [ ] 4.3 Implement the quick-access popup with global shortcut support and keyboard-first navigation
-- [ ] 4.4 Implement pinning, favorites, deletion, retention rules, and excluded-app behavior
+- [x] 4.3 Implement the quick-access popup with global shortcut support and keyboard-first navigation
+- [x] 4.4 Implement pinning, favorites, deletion, retention rules, and excluded-app behavior
 
 ## 5. Organization and Portability
 
-- [ ] 5.1 Implement search with indexed local queries across content and metadata
-- [ ] 5.2 Implement filters, tags, and sorting controls for large histories
+- [x] 5.1 Implement search with indexed local queries across content and metadata
+- [x] 5.2 Implement filters, tags, and sorting controls for large histories
 - [ ] 5.3 Implement import and export for supported history formats
 - [ ] 5.4 Evaluate optional sync architecture only after the local-first product is stable
 
 ## 6. Quality and Release
 
-- [ ] 6.1 Add tests for clipboard capture, duplicate handling, history actions, and search behavior
-- [ ] 6.2 Add platform-specific QA coverage for permissions, tray behavior, and launch-at-login flows
-- [ ] 6.3 Prepare screenshots, onboarding documentation, and a polished README without including secrets or unnecessary generated files
+- [x] 6.1 Add tests for clipboard capture, duplicate handling, history actions, and search behavior
+- [x] 6.2 Add platform-specific QA coverage for permissions, tray behavior, and launch-at-login flows
+- [x] 6.3 Prepare screenshots, onboarding documentation, and a polished README without including secrets or unnecessary generated files
 - [x] 6.4 Define packaging, signing, and release steps for the chosen launch platform

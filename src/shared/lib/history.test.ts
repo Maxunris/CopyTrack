@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterEntries, getHistoryStats, typeLabel } from "./history";
+import { collectTags, filterEntries, getHistoryStats, sortEntries, typeLabel } from "./history";
 import type { HistoryItem } from "../types/history";
 
 const items: HistoryItem[] = [
@@ -41,6 +41,12 @@ describe("history utilities", () => {
     expect(result[0]?.id).toBe("1");
   });
 
+  it("filters by selected tag", () => {
+    const result = filterEntries(items, "", false, false, "all", "release");
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe("1");
+  });
+
   it("computes entry stats", () => {
     expect(getHistoryStats(items)).toEqual({
       total: 2,
@@ -57,5 +63,10 @@ describe("history utilities", () => {
     expect(typeLabel("image")).toBe("Image");
     expect(typeLabel("link")).toBe("Link");
     expect(typeLabel("text")).toBe("Text");
+  });
+
+  it("sorts by favorites and collects tags", () => {
+    expect(sortEntries(items, "favorites")[0]?.id).toBe("1");
+    expect(collectTags(items)).toEqual(["release"]);
   });
 });

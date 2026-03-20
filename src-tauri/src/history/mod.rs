@@ -1,4 +1,5 @@
 use std::fs;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -75,6 +76,13 @@ pub struct HistoryQuery {
     pub only_pinned: Option<bool>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagsPatch {
+    pub id: String,
+    pub tags: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapPayload {
@@ -107,6 +115,10 @@ impl HistoryStore {
         let base_dir = dirs::data_local_dir()
             .unwrap_or_else(std::env::temp_dir)
             .join(app_name);
+        Self::new_in_dir(base_dir)
+    }
+
+    fn new_in_dir(base_dir: PathBuf) -> Result<Self, StoreError> {
         let asset_dir = base_dir.join("assets");
         fs::create_dir_all(&asset_dir)?;
 
@@ -154,6 +166,14 @@ impl HistoryStore {
             CREATE INDEX IF NOT EXISTS idx_entries_content_type ON entries(content_type);
             CREATE INDEX IF NOT EXISTS idx_entries_pinned ON entries(pinned);
             CREATE INDEX IF NOT EXISTS idx_entries_favorite ON entries(favorite);
+            CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+              entry_id UNINDEXED,
+              preview_text,
+              full_text,
+              source_app,
+              file_paths,
+              tags
+            );
             ",
         )?;
 
@@ -170,6 +190,8 @@ impl HistoryStore {
                 bool_to_int(default_settings.launch_at_login),
             ],
         )?;
+
+        rebuild_search_index(&connection)?;
 
         Ok(())
     }
@@ -246,7 +268,29 @@ impl HistoryStore {
         Ok(updated)
     }
 
+    fn search_matching_ids(&self, search: Option<&str>) -> Result<Option<HashSet<String>>, StoreError> {
+        let Some(search) = search else {
+            return Ok(None);
+        };
+
+        let Some(query) = build_fts_query(search.trim()) else {
+            return Ok(None);
+        };
+
+        let connection = self.connection()?;
+        let mut statement = connection.prepare("SELECT entry_id FROM entries_fts WHERE entries_fts MATCH ?")?;
+        let rows = statement.query_map(params![query], |row| row.get::<_, String>(0))?;
+
+        let mut matches = HashSet::new();
+        for row in rows {
+            matches.insert(row?);
+        }
+
+        Ok(Some(matches))
+    }
+
     pub fn list_entries(&self, query: &HistoryQuery) -> Result<Vec<HistoryItem>, StoreError> {
+        let matching_ids = self.search_matching_ids(query.search.as_deref())?;
         let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT id, content_type, preview_text, full_text, image_path, file_paths_json, source_app, created_at, favorite, pinned, tags_json, size_bytes
@@ -281,7 +325,7 @@ impl HistoryStore {
 
         Ok(entries
             .into_iter()
-            .filter(|entry| matches_query(entry, query))
+            .filter(|entry| matches_query(entry, query, matching_ids.as_ref()))
             .collect())
     }
 
@@ -331,12 +375,16 @@ impl HistoryStore {
         }
     }
 
-    pub fn insert_capture(&self, capture: &ClipboardCapture) -> Result<Option<HistoryItem>, StoreError> {
+    pub fn insert_capture(
+        &self,
+        capture: &ClipboardCapture,
+        source_app: Option<String>,
+    ) -> Result<Option<HistoryItem>, StoreError> {
         if self.latest_fingerprint()?.as_deref() == Some(capture.fingerprint().as_str()) {
             return Ok(None);
         }
 
-        let item = self.capture_to_item(capture)?;
+        let item = self.capture_to_item(capture, source_app)?;
         let connection = self.connection()?;
         connection.execute(
             "INSERT INTO entries (
@@ -357,6 +405,7 @@ impl HistoryStore {
             ],
         )?;
 
+        upsert_search_index(&connection, &item)?;
         let settings = self.load_settings()?;
         self.cleanup_unpinned(settings.history_limit)?;
         Ok(self.get_entry(&item.id)?)
@@ -368,6 +417,24 @@ impl HistoryStore {
 
     pub fn set_favorite(&self, id: &str, favorite: bool) -> Result<(), StoreError> {
         self.update_boolean_field(id, "favorite", favorite)
+    }
+
+    pub fn set_tags(&self, id: &str, tags: Vec<String>) -> Result<(), StoreError> {
+        let normalized = tags
+            .into_iter()
+            .map(|tag| tag.trim().to_lowercase())
+            .filter(|tag| !tag.is_empty())
+            .collect::<Vec<_>>();
+
+        let connection = self.connection()?;
+        connection.execute(
+            "UPDATE entries SET tags_json = ? WHERE id = ?",
+            params![serde_json::to_string(&normalized)?, id],
+        )?;
+        if let Some(entry) = self.get_entry(id)? {
+            upsert_search_index(&connection, &entry)?;
+        }
+        Ok(())
     }
 
     fn update_boolean_field(&self, id: &str, field: &str, value: bool) -> Result<(), StoreError> {
@@ -389,6 +456,7 @@ impl HistoryStore {
                 }
             }
             connection.execute("DELETE FROM entries WHERE id = ?", params![id])?;
+            remove_search_index(&connection, id)?;
         }
         Ok(())
     }
@@ -419,6 +487,9 @@ impl HistoryStore {
         }
 
         connection.execute("DELETE FROM entries WHERE pinned = 0", [])?;
+        for id in ids {
+            remove_search_index(&connection, &id)?;
+        }
         Ok(())
     }
 
@@ -452,12 +523,17 @@ impl HistoryStore {
 
         for id in stale_ids {
             connection.execute("DELETE FROM entries WHERE id = ?", params![id])?;
+            remove_search_index(&connection, &id)?;
         }
 
         Ok(())
     }
 
-    fn capture_to_item(&self, capture: &ClipboardCapture) -> Result<HistoryItem, StoreError> {
+    fn capture_to_item(
+        &self,
+        capture: &ClipboardCapture,
+        source_app: Option<String>,
+    ) -> Result<HistoryItem, StoreError> {
         let created_at = Utc::now().to_rfc3339();
         let id = Uuid::new_v4().to_string();
 
@@ -471,7 +547,7 @@ impl HistoryStore {
                     full_text: Some(value.clone()),
                     image_path: None,
                     file_paths: Vec::new(),
-                    source_app: None,
+                    source_app,
                     created_at,
                     favorite: false,
                     pinned: false,
@@ -493,7 +569,7 @@ impl HistoryStore {
                     full_text: None,
                     image_path: Some(image_path.to_string_lossy().to_string()),
                     file_paths: Vec::new(),
-                    source_app: None,
+                    source_app,
                     created_at,
                     favorite: false,
                     pinned: false,
@@ -514,7 +590,7 @@ impl HistoryStore {
                     full_text: Some(paths.join("\n")),
                     image_path: None,
                     file_paths: paths.clone(),
-                    source_app: None,
+                    source_app,
                     created_at,
                     favorite: false,
                     pinned: false,
@@ -571,7 +647,88 @@ fn bool_to_int(value: bool) -> i64 {
     }
 }
 
-fn matches_query(entry: &HistoryItem, query: &HistoryQuery) -> bool {
+fn rebuild_search_index(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute("DELETE FROM entries_fts", [])?;
+
+    let mut statement = connection.prepare(
+        "SELECT id, preview_text, full_text, source_app, file_paths_json, tags_json FROM entries",
+    )?;
+
+    let rows = statement.query_map([], |row| {
+        let file_paths_json: String = row.get(4)?;
+        let tags_json: String = row.get(5)?;
+
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            serde_json::from_str::<Vec<String>>(&file_paths_json).unwrap_or_default(),
+            serde_json::from_str::<Vec<String>>(&tags_json).unwrap_or_default(),
+        ))
+    })?;
+
+    for row in rows {
+        let (entry_id, preview_text, full_text, source_app, file_paths, tags) = row?;
+        connection.execute(
+            "INSERT INTO entries_fts (entry_id, preview_text, full_text, source_app, file_paths, tags)
+             VALUES (?, ?, ?, ?, ?, ?)",
+            params![
+                entry_id,
+                preview_text,
+                full_text.unwrap_or_default(),
+                source_app.unwrap_or_default(),
+                file_paths.join(" "),
+                tags.join(" "),
+            ],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn upsert_search_index(connection: &Connection, entry: &HistoryItem) -> Result<(), StoreError> {
+    remove_search_index(connection, &entry.id)?;
+    connection.execute(
+        "INSERT INTO entries_fts (entry_id, preview_text, full_text, source_app, file_paths, tags)
+         VALUES (?, ?, ?, ?, ?, ?)",
+        params![
+            entry.id,
+            entry.preview_text,
+            entry.full_text.clone().unwrap_or_default(),
+            entry.source_app.clone().unwrap_or_default(),
+            entry.file_paths.join(" "),
+            entry.tags.join(" "),
+        ],
+    )?;
+    Ok(())
+}
+
+fn remove_search_index(connection: &Connection, id: &str) -> Result<(), StoreError> {
+    connection.execute("DELETE FROM entries_fts WHERE entry_id = ?", params![id])?;
+    Ok(())
+}
+
+fn build_fts_query(search: &str) -> Option<String> {
+    let tokens = search
+        .split_whitespace()
+        .map(|token| token.trim_matches('"'))
+        .filter(|token| !token.is_empty())
+        .map(|token| format!("\"{}\"", token.replace('"', "\"\"")))
+        .collect::<Vec<_>>();
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" AND "))
+    }
+}
+
+fn matches_query(
+    entry: &HistoryItem,
+    query: &HistoryQuery,
+    matching_ids: Option<&HashSet<String>>,
+) -> bool {
     if query.only_favorites.unwrap_or(false) && !entry.favorite {
         return false;
     }
@@ -586,21 +743,9 @@ fn matches_query(entry: &HistoryItem, query: &HistoryQuery) -> bool {
         }
     }
 
-    if let Some(search) = &query.search {
-        let search = search.trim().to_lowercase();
-        if !search.is_empty() {
-            let haystack = [
-                entry.preview_text.to_lowercase(),
-                entry.full_text.clone().unwrap_or_default().to_lowercase(),
-                entry.source_app.clone().unwrap_or_default().to_lowercase(),
-                entry.file_paths.join(" ").to_lowercase(),
-                entry.tags.join(" ").to_lowercase(),
-            ]
-            .join(" ");
-
-            if !haystack.contains(&search) {
-                return false;
-            }
+    if let Some(matching_ids) = matching_ids {
+        if !matching_ids.contains(&entry.id) {
+            return false;
         }
     }
 
@@ -633,6 +778,7 @@ pub fn fingerprint_for_files(paths: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn text_summary_keeps_preview_short() {
@@ -645,7 +791,7 @@ mod tests {
     }
 
     #[test]
-    fn query_filters_by_flags_and_search() {
+    fn query_filters_by_flags_and_matching_ids() {
         let entry = HistoryItem {
             id: "1".to_string(),
             content_type: "text".to_string(),
@@ -669,6 +815,8 @@ mod tests {
                 only_favorites: Some(true),
                 only_pinned: Some(false),
             }
+            ,
+            Some(&HashSet::from(["1".to_string()])),
         ));
         assert!(!matches_query(
             &entry,
@@ -677,7 +825,61 @@ mod tests {
                 content_type: Some("text".to_string()),
                 only_favorites: Some(true),
                 only_pinned: Some(false),
-            }
+            },
+            Some(&HashSet::from(["2".to_string()])),
         ));
+    }
+
+    #[test]
+    fn build_fts_query_quotes_tokens() {
+        assert_eq!(
+            build_fts_query("release notes"),
+            Some("\"release\" AND \"notes\"".to_string())
+        );
+    }
+
+    #[test]
+    fn store_deduplicates_and_searches_indexed_content() {
+        let base_dir = std::env::temp_dir().join(format!("copytrack-test-{}", Uuid::new_v4()));
+        let store = HistoryStore::new_in_dir(base_dir.clone()).expect("store should initialize");
+
+        let first = store
+            .insert_capture(
+                &ClipboardCapture::Text {
+                    value: "Release checklist for CopyTrack".to_string(),
+                },
+                Some("Notes".to_string()),
+            )
+            .expect("first insert should succeed");
+        assert!(first.is_some());
+
+        let duplicate = store
+            .insert_capture(
+                &ClipboardCapture::Text {
+                    value: "Release checklist for CopyTrack".to_string(),
+                },
+                Some("Notes".to_string()),
+            )
+            .expect("duplicate insert should not fail");
+        assert!(duplicate.is_none());
+
+        let entry = first.expect("entry should exist");
+        store
+            .set_tags(&entry.id, vec!["release".to_string(), "docs".to_string()])
+            .expect("tags should save");
+
+        let search_results = store
+            .list_entries(&HistoryQuery {
+                search: Some("release docs".to_string()),
+                content_type: Some("text".to_string()),
+                only_favorites: Some(false),
+                only_pinned: Some(false),
+            })
+            .expect("search should succeed");
+
+        assert_eq!(search_results.len(), 1);
+        assert_eq!(search_results[0].source_app.as_deref(), Some("Notes"));
+
+        fs::remove_dir_all(base_dir).expect("temp store should be removed");
     }
 }

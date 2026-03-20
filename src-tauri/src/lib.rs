@@ -8,15 +8,17 @@ pub mod platform {
 
 use std::sync::{Arc, Mutex};
 
-use tauri::State;
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::clipboard::copy_history_item;
-use crate::history::{BootstrapPayload, HistoryItem, HistoryQuery, HistoryStore, SettingsPatch};
+use crate::history::{BootstrapPayload, HistoryItem, HistoryQuery, HistoryStore, SettingsPatch, TagsPatch};
 
 #[derive(Clone)]
 pub struct SharedState {
     pub store: Arc<HistoryStore>,
     pub last_seen_fingerprint: Arc<Mutex<Option<String>>>,
+    pub registered_shortcut: Arc<Mutex<Option<String>>>,
 }
 
 impl SharedState {
@@ -24,6 +26,7 @@ impl SharedState {
         Ok(Self {
             store: Arc::new(HistoryStore::new("CopyTrack").map_err(|error| error.to_string())?),
             last_seen_fingerprint: Arc::new(Mutex::new(None)),
+            registered_shortcut: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -39,8 +42,16 @@ fn list_history(query: HistoryQuery, state: State<SharedState>) -> Result<Vec<Hi
 }
 
 #[tauri::command]
-fn save_settings(patch: SettingsPatch, state: State<SharedState>) -> Result<crate::history::AppSettings, String> {
-    state.store.save_settings(patch).map_err(|error| error.to_string())
+fn save_settings(
+    patch: SettingsPatch,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<crate::history::AppSettings, String> {
+    let updated = state.store.save_settings(patch).map_err(|error| error.to_string())?;
+    if !updated.shortcut.trim().is_empty() {
+        apply_global_shortcut(&app, &state, &updated.shortcut)?;
+    }
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -67,6 +78,14 @@ fn clear_unpinned_history(state: State<SharedState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_tags(patch: TagsPatch, state: State<SharedState>) -> Result<(), String> {
+    state
+        .store
+        .set_tags(&patch.id, patch.tags)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn copy_entry(id: String, state: State<SharedState>) -> Result<(), String> {
     let item = state
         .store
@@ -75,6 +94,83 @@ fn copy_entry(id: String, state: State<SharedState>) -> Result<(), String> {
         .ok_or_else(|| "History item not found".to_string())?;
 
     copy_history_item(&item, &state.store)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_quick_access(app: tauri::AppHandle) -> Result<(), String> {
+    show_quick_access_window(&app).map_err(|error| error.to_string())
+}
+
+fn ensure_quick_access_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window("quick-access").is_some() {
+        return Ok(());
+    }
+
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(
+        app,
+        "quick-access",
+        WebviewUrl::App("index.html#quick-access".into()),
+    )
+    .title("CopyTrack Quick Access")
+    .inner_size(760.0, 560.0)
+    .resizable(false)
+    .center()
+    .visible(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .decorations(false);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.hidden_title(true);
+    }
+
+    builder.build()?;
+    Ok(())
+}
+
+fn show_quick_access_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    ensure_quick_access_window(app)?;
+
+    if let Some(window) = app.get_webview_window("quick-access") {
+        window.show()?;
+        window.unminimize()?;
+        window.center()?;
+        window.set_focus()?;
+    }
+
+    Ok(())
+}
+
+fn apply_global_shortcut(app: &tauri::AppHandle, state: &SharedState, shortcut: &str) -> Result<(), String> {
+    let manager = app.global_shortcut();
+    let mut registered = state
+        .registered_shortcut
+        .lock()
+        .map_err(|_| "shortcut lock poisoned".to_string())?;
+
+    if let Some(existing) = registered.clone() {
+        if existing == shortcut {
+            return Ok(());
+        }
+        manager
+            .unregister(existing.as_str())
+            .map_err(|error| error.to_string())?;
+    }
+
+    let shortcut_value = shortcut.trim().to_string();
+    manager
+        .on_shortcut(shortcut_value.as_str(), move |app_handle, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                let _ = show_quick_access_window(app_handle);
+            }
+        })
+        .map_err(|error| error.to_string())?;
+
+    *registered = Some(shortcut_value);
     Ok(())
 }
 
@@ -96,6 +192,14 @@ pub fn run() {
                         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))?;
                 }
 
+                ensure_quick_access_window(app.handle())?;
+                let shortcut = shared_state
+                    .store
+                    .load_settings()
+                    .map_err(|error| tauri::Error::Anyhow(anyhow::anyhow!(error.to_string())))?
+                    .shortcut;
+                apply_global_shortcut(app.handle(), &shared_state, &shortcut)
+                    .map_err(|error| tauri::Error::Anyhow(anyhow::anyhow!(error)))?;
                 tray::setup_tray(app.handle(), shared_state.clone())?;
                 clipboard::start_monitor(app.handle().clone(), shared_state.clone());
                 Ok(())
@@ -110,7 +214,9 @@ pub fn run() {
             toggle_favorite,
             delete_history_items,
             clear_unpinned_history,
-            copy_entry
+            save_tags,
+            copy_entry,
+            open_quick_access
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

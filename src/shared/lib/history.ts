@@ -1,5 +1,7 @@
 import type { HistoryItem } from "../types/history";
 
+export type SortMode = "recent" | "oldest" | "favorites" | "type";
+
 export function typeLabel(contentType: string) {
   switch (contentType) {
     case "link":
@@ -81,8 +83,10 @@ export function filterEntries(
   onlyFavorites: boolean,
   onlyPinned: boolean,
   contentType: string,
+  selectedTag = "",
 ) {
   const normalizedSearch = search.trim().toLowerCase();
+  const normalizedTag = selectedTag.trim().toLowerCase();
 
   return entries.filter((entry) => {
     if (onlyFavorites && !entry.favorite) {
@@ -92,6 +96,9 @@ export function filterEntries(
       return false;
     }
     if (contentType !== "all" && entry.contentType !== contentType) {
+      return false;
+    }
+    if (normalizedTag && !entry.tags.map((tag) => tag.toLowerCase()).includes(normalizedTag)) {
       return false;
     }
     if (!normalizedSearch) {
@@ -110,4 +117,25 @@ export function filterEntries(
 
     return haystack.includes(normalizedSearch);
   });
+}
+
+export function sortEntries(entries: HistoryItem[], sortMode: SortMode) {
+  return [...entries].sort((left, right) => {
+    if (sortMode === "oldest") {
+      return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    }
+    if (sortMode === "favorites") {
+      return Number(right.favorite) - Number(left.favorite) || new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    }
+    if (sortMode === "type") {
+      return left.contentType.localeCompare(right.contentType) || new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    }
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+  });
+}
+
+export function collectTags(entries: HistoryItem[]) {
+  return [...new Set(entries.flatMap((entry) => entry.tags.map((tag) => tag.trim()).filter(Boolean)))].sort((left, right) =>
+    left.localeCompare(right),
+  );
 }

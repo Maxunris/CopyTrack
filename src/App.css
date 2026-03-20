@@ -190,7 +190,9 @@ button {
 .secondary-button,
 .ghost-button,
 .filter-chip,
-.toggle-chip {
+.toggle-chip,
+.tag-chip,
+.quick-row {
   border: 0;
   border-radius: 16px;
   transition:
@@ -217,7 +219,9 @@ button {
 .secondary-button:hover,
 .ghost-button:hover,
 .filter-chip:hover,
-.toggle-chip:hover {
+.toggle-chip:hover,
+.tag-chip:hover,
+.quick-row:hover {
   transform: translateY(-1px);
 }
 
@@ -252,19 +256,25 @@ button {
   gap: 12px;
 }
 
-.search-field {
+.search-field,
+.sort-field,
+.tag-editor {
   display: grid;
   gap: 8px;
   min-width: min(100%, 420px);
 }
 
 .search-field span,
+.sort-field span,
+.tag-editor span,
 .settings-grid span {
   color: rgba(231, 238, 252, 0.68);
   font-size: 0.86rem;
 }
 
 .search-field input,
+.sort-field select,
+.tag-editor input,
 .settings-grid input,
 .settings-grid select,
 .settings-grid textarea {
@@ -299,6 +309,17 @@ button {
 .toggle-chip.active {
   background: rgba(127, 230, 206, 0.18);
   color: #c7fff3;
+}
+
+.tag-chip {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(231, 238, 252, 0.82);
+  padding: 10px 14px;
+}
+
+.tag-chip.active {
+  background: rgba(117, 190, 255, 0.18);
+  color: #c8ebff;
 }
 
 .workspace-grid {
@@ -507,6 +528,122 @@ button {
   color: rgba(231, 238, 252, 0.68);
 }
 
+.permission-card {
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(6, 12, 28, 0.28);
+  line-height: 1.6;
+  color: rgba(231, 238, 252, 0.82);
+}
+
+.permission-card h3 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+}
+
+.permission-card p:last-child {
+  margin-bottom: 0;
+}
+
+.settings-guidance {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.settings-guidance-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(7, 15, 34, 0.3);
+}
+
+.settings-guidance-card strong {
+  font-size: 0.96rem;
+}
+
+.settings-guidance-card span {
+  color: rgba(231, 238, 252, 0.72);
+  line-height: 1.5;
+}
+
+.quick-access-shell {
+  display: grid;
+  gap: 14px;
+  min-height: 100vh;
+  padding: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(123, 207, 255, 0.2), transparent 28%),
+    linear-gradient(160deg, rgba(13, 22, 46, 0.96), rgba(10, 17, 37, 0.92));
+}
+
+.quick-access-header,
+.quick-search-row,
+.quick-row-top,
+.quick-row-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.quick-search {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  padding: 12px 14px;
+}
+
+.quick-select {
+  min-width: 150px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  padding: 12px 14px;
+}
+
+.quick-hint-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: rgba(231, 238, 252, 0.62);
+  font-size: 0.84rem;
+}
+
+.quick-access-list {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+}
+
+.quick-row {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  text-align: left;
+}
+
+.quick-row.selected {
+  background: rgba(127, 230, 206, 0.14);
+  border-color: rgba(127, 230, 206, 0.28);
+}
+
+.quick-row-preview {
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.compact {
+  min-height: 160px;
+}
+
 @media (max-width: 1220px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -525,7 +662,9 @@ button {
   .toolbar,
   .hero-actions,
   .preview-actions,
-  .settings-header {
+  .settings-header,
+  .quick-access-header,
+  .quick-search-row {
     flex-direction: column;
   }
 

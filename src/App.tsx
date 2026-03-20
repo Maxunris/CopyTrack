@@ -2,20 +2,31 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
-import { useDeferredValue, useEffect, useEffectEvent, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useState } from "react";
 
 import {
   bootstrapApp,
   clearUnpinnedHistory,
   copyEntry,
+  isTauriRuntime,
   deleteHistoryItems,
   listHistory,
+  openQuickAccess,
   saveSettings,
+  saveTags,
   toggleFavorite,
   togglePin,
 } from "./app/api";
-import { formatBytes, getHistoryStats, relativeDateLabel, typeLabel } from "./shared/lib/history";
+import {
+  collectTags,
+  filterEntries,
+  formatBytes,
+  getHistoryStats,
+  relativeDateLabel,
+  sortEntries,
+  typeLabel,
+  type SortMode,
+} from "./shared/lib/history";
 import type { AppSettings, HistoryItem, HistoryQuery } from "./shared/types/history";
 import "./App.css";
 
@@ -24,6 +35,8 @@ type HistoryChangedPayload = {
 };
 
 const contentFilters = ["all", "text", "link", "image", "file"];
+const isTauri = isTauriRuntime();
+const currentWindow = isTauri ? getCurrentWindow() : null;
 
 const emptySettings: AppSettings = {
   captureEnabled: true,
@@ -35,6 +48,7 @@ const emptySettings: AppSettings = {
 };
 
 export default function App() {
+  const [routeHash, setRouteHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
   const [entries, setEntries] = useState<HistoryItem[]>([]);
   const [allEntries, setAllEntries] = useState<HistoryItem[]>([]);
   const [settings, setSettings] = useState<AppSettings>(emptySettings);
@@ -43,6 +57,9 @@ export default function App() {
   const [contentType, setContentType] = useState("all");
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [onlyPinned, setOnlyPinned] = useState(false);
+  const [selectedTag, setSelectedTag] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("recent");
+  const [tagDraft, setTagDraft] = useState("");
   const [supportedLimits, setSupportedLimits] = useState<number[]>([50, 100, 500, 1000, 10000]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [autostartEnabled, setAutostartEnabled] = useState(false);
@@ -50,19 +67,24 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Watching your clipboard locally");
   const deferredSearch = useDeferredValue(search);
-  const registeredShortcutRef = useRef<string | null>(null);
+  const isQuickAccess = currentWindow?.label === "quick-access" || routeHash === "#quick-access";
 
+  const scopedEntries = filterEntries(entries, "", false, false, "all", selectedTag);
+  const visibleEntries = sortEntries(scopedEntries, sortMode);
   const selectedEntry =
-    entries.find((entry) => entry.id === selectedId) ?? entries[0] ?? allEntries.find((entry) => entry.id === selectedId) ?? null;
+    visibleEntries.find((entry) => entry.id === selectedId) ??
+    visibleEntries[0] ??
+    allEntries.find((entry) => entry.id === selectedId) ??
+    null;
   const stats = getHistoryStats(allEntries);
+  const availableTags = collectTags(allEntries);
 
-  const refreshHistory = useEffectEvent(async (queryOverride?: Partial<HistoryQuery>) => {
+  const refreshHistory = useCallback(async () => {
     const nextQuery: HistoryQuery = {
       search: deferredSearch,
       contentType,
       onlyFavorites,
       onlyPinned,
-      ...queryOverride,
     };
 
     const nextEntries = await listHistory(nextQuery);
@@ -73,14 +95,14 @@ export default function App() {
       }
       return nextEntries[0]?.id ?? null;
     });
-  });
+  }, [contentType, deferredSearch, onlyFavorites, onlyPinned]);
 
-  const refreshAllEntries = useEffectEvent(async () => {
+  const refreshAllEntries = useCallback(async () => {
     const history = await listHistory({});
     setAllEntries(history);
-  });
+  }, []);
 
-  const hydrate = useEffectEvent(async () => {
+  const hydrate = useCallback(async () => {
     setIsLoading(true);
     const bootstrap = await bootstrapApp();
     setSettings(bootstrap.settings);
@@ -88,23 +110,41 @@ export default function App() {
     setAllEntries(bootstrap.entries);
     setSupportedLimits(bootstrap.supportedHistoryLimits);
     setSelectedId(bootstrap.entries[0]?.id ?? null);
-    setAutostartEnabled(await isEnabled().catch(() => false));
+    setAutostartEnabled(isTauri ? await isEnabled().catch(() => false) : bootstrap.settings.launchAtLogin);
     setIsLoading(false);
-  });
+  }, []);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const syncHash = () => setRouteHash(window.location.hash);
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
+
+  useEffect(() => {
     if (isLoading) {
       return;
     }
     void refreshHistory();
-  }, [contentType, deferredSearch, onlyFavorites, onlyPinned, isLoading, refreshHistory]);
+  }, [isLoading, refreshHistory]);
 
   useEffect(() => {
-    if (isLoading) {
+    if (selectedEntry) {
+      setTagDraft(selectedEntry.tags.join(", "));
+    } else {
+      setTagDraft("");
+    }
+  }, [selectedEntry?.id]);
+
+  useEffect(() => {
+    if (isLoading || !isTauri) {
       return;
     }
 
@@ -122,43 +162,63 @@ export default function App() {
   }, [isLoading, refreshAllEntries, refreshHistory]);
 
   useEffect(() => {
-    if (isLoading) {
+    if (!isQuickAccess || isLoading) {
       return;
     }
 
-    const shortcut = settings.shortcut || emptySettings.shortcut;
-    void (async () => {
-      const previousShortcut = registeredShortcutRef.current;
-      if (previousShortcut && previousShortcut !== shortcut) {
-        await unregister(previousShortcut).catch(() => undefined);
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (currentWindow) {
+          void currentWindow.hide();
+        }
+        return;
       }
 
-      await register(shortcut, async () => {
-        const window = getCurrentWindow();
-        await window.show();
-        await window.unminimize();
-        await window.setFocus();
-        setStatusMessage(`Quick access opened with ${shortcut}`);
-        window.setAlwaysOnTop(true).catch(() => undefined);
-        window.setAlwaysOnTop(false).catch(() => undefined);
-      }).catch(() => undefined);
-      registeredShortcutRef.current = shortcut;
-    })();
+      if (isTypingTarget) {
+        return;
+      }
 
-    return () => {
-      if (registeredShortcutRef.current === shortcut) {
-        void unregister(shortcut).catch(() => undefined);
+      const currentIndex = Math.max(
+        0,
+        visibleEntries.findIndex((entry) => entry.id === selectedEntry?.id),
+      );
+
+      if (event.key === "ArrowDown" && visibleEntries.length > 0) {
+        event.preventDefault();
+        const nextIndex = Math.min(visibleEntries.length - 1, currentIndex + 1);
+        setSelectedId(visibleEntries[nextIndex]?.id ?? null);
+      }
+
+      if (event.key === "ArrowUp" && visibleEntries.length > 0) {
+        event.preventDefault();
+        const nextIndex = Math.max(0, currentIndex - 1);
+        setSelectedId(visibleEntries[nextIndex]?.id ?? null);
+      }
+
+      if (event.key === "Enter" && selectedEntry) {
+        event.preventDefault();
+        void handleCopy(selectedEntry);
       }
     };
-  }, [isLoading, settings.shortcut]);
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isLoading, selectedEntry, visibleEntries]);
 
   async function handleSettingsSave(patch: Partial<AppSettings>) {
     setIsSaving(true);
     try {
       if (patch.launchAtLogin !== undefined && patch.launchAtLogin !== autostartEnabled) {
-        if (patch.launchAtLogin) {
+        if (isTauri && patch.launchAtLogin) {
           await enable();
-        } else {
+        } else if (isTauri) {
           await disable();
         }
         setAutostartEnabled(patch.launchAtLogin);
@@ -178,6 +238,11 @@ export default function App() {
     await copyEntry(entry.id);
     setSelectedId(entry.id);
     setStatusMessage(`Copied ${typeLabel(entry.contentType).toLowerCase()} item back to clipboard`);
+    if (currentWindow && isQuickAccess) {
+      await currentWindow.hide();
+    } else if (isQuickAccess && typeof window !== "undefined") {
+      window.location.hash = "";
+    }
   }
 
   async function handleFavorite(entry: HistoryItem) {
@@ -206,6 +271,90 @@ export default function App() {
     setStatusMessage("Cleared unpinned history");
     await refreshAllEntries();
     await refreshHistory();
+  }
+
+  async function handleTagsSave() {
+    if (!selectedEntry) {
+      return;
+    }
+
+    const nextTags = tagDraft
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    await saveTags(selectedEntry.id, nextTags);
+    setStatusMessage("Tags updated");
+    await refreshAllEntries();
+    await refreshHistory();
+  }
+
+  if (isQuickAccess) {
+    return (
+      <div className="quick-access-shell">
+        <div className="quick-access-header">
+          <div>
+            <p className="eyebrow">Quick Access</p>
+            <h2>CopyTrack popup</h2>
+          </div>
+          <button className="ghost-button" onClick={() => (currentWindow ? void currentWindow.hide() : undefined)} type="button">
+            Close
+          </button>
+        </div>
+
+        <div className="quick-search-row">
+          <input
+            autoFocus
+            className="quick-search"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search copied content"
+            value={search}
+          />
+          <select className="quick-select" onChange={(event) => setContentType(event.target.value)} value={contentType}>
+            {contentFilters.map((filter) => (
+              <option key={filter} value={filter}>
+                {filter === "all" ? "All types" : typeLabel(filter)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="quick-hint-row">
+          <span>{settings.shortcut} opens this popup</span>
+          <span>Arrow keys to navigate</span>
+          <span>Enter copies</span>
+          <span>Esc closes</span>
+        </div>
+
+        <div className="quick-access-list">
+          {visibleEntries.length === 0 ? (
+            <div className="empty-state compact">
+              <p>No matching clipboard items</p>
+              <span>Copy something new or widen your search.</span>
+            </div>
+          ) : (
+            visibleEntries.map((entry) => (
+              <button
+                className={`quick-row ${selectedEntry?.id === entry.id ? "selected" : ""}`}
+                key={entry.id}
+                onClick={() => void handleCopy(entry)}
+                onFocus={() => setSelectedId(entry.id)}
+                type="button"
+              >
+                <div className="quick-row-top">
+                  <span className={`type-pill type-${entry.contentType}`}>{typeLabel(entry.contentType)}</span>
+                  <span className="meta-text">{relativeDateLabel(entry.createdAt)}</span>
+                </div>
+                <div className="quick-row-preview">{entry.previewText}</div>
+                <div className="quick-row-footer">
+                  <span>{entry.tags.length > 0 ? `#${entry.tags.join(" #")}` : "No tags yet"}</span>
+                  <span>{formatBytes(entry.sizeBytes)}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -239,11 +388,11 @@ export default function App() {
         </div>
 
         <div className="hero-actions">
-          <button className="primary-button" onClick={() => void setSettingsOpen(true)} type="button">
-            Open Settings
+          <button className="primary-button" onClick={() => void openQuickAccess()} type="button">
+            Open Quick Access
           </button>
-          <button className="secondary-button" onClick={() => void handleClear()} type="button">
-            Clear Unpinned
+          <button className="secondary-button" onClick={() => void setSettingsOpen(true)} type="button">
+            Open Settings
           </button>
         </div>
 
@@ -252,6 +401,16 @@ export default function App() {
           <FeatureLine title="Launch at login" value={autostartEnabled ? "Enabled" : "Disabled"} />
           <FeatureLine title="Capture mode" value={settings.captureEnabled ? "Recording" : "Paused"} />
           <FeatureLine title="Theme" value={settings.theme} />
+        </div>
+
+        <div className="permission-card">
+          <p className="eyebrow">macOS Notes</p>
+          <h3>Permission guidance</h3>
+          <p>
+            If macOS prompts for clipboard access, allow CopyTrack so history capture keeps working in the background.
+            Launch-at-login uses a standard login item, and the menu bar icon stays available as the fast recovery
+            point when the main window is closed.
+          </p>
         </div>
       </aside>
 
@@ -272,8 +431,17 @@ export default function App() {
                 value={search}
               />
             </label>
-            <button className="ghost-button" onClick={() => void setSettingsOpen(true)} type="button">
-              Settings
+            <label className="sort-field" htmlFor="sort-mode">
+              <span>Sort</span>
+              <select id="sort-mode" onChange={(event) => setSortMode(event.target.value as SortMode)} value={sortMode}>
+                <option value="recent">Most recent</option>
+                <option value="favorites">Favorites first</option>
+                <option value="type">By type</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </label>
+            <button className="ghost-button" onClick={() => void handleClear()} type="button">
+              Clear Unpinned
             </button>
           </div>
         </header>
@@ -303,19 +471,29 @@ export default function App() {
           >
             Pinned
           </button>
+          {availableTags.map((tag) => (
+            <button
+              className={`tag-chip ${selectedTag === tag ? "active" : ""}`}
+              key={tag}
+              onClick={() => setSelectedTag((current) => (current === tag ? "" : tag))}
+              type="button"
+            >
+              #{tag}
+            </button>
+          ))}
         </div>
 
         <div className="workspace-grid">
           <section className="history-list">
             {isLoading ? (
               <div className="empty-state">Preparing your clipboard workspace…</div>
-            ) : entries.length === 0 ? (
+            ) : visibleEntries.length === 0 ? (
               <div className="empty-state">
                 <p>No entries match the current view.</p>
                 <span>Copy some content or change the filters to see more history.</span>
               </div>
             ) : (
-              entries.map((entry) => (
+              visibleEntries.map((entry) => (
                 <button
                   className={`history-row ${selectedEntry?.id === entry.id ? "selected" : ""}`}
                   key={entry.id}
@@ -328,7 +506,7 @@ export default function App() {
                   </div>
                   <div className="history-row-preview">{entry.previewText}</div>
                   <div className="history-row-footer">
-                    <span>{formatBytes(entry.sizeBytes)}</span>
+                    <span>{entry.tags.length > 0 ? `#${entry.tags.join(" #")}` : formatBytes(entry.sizeBytes)}</span>
                     <div className="history-row-actions">
                       <ActionBadge active={entry.favorite} label="Favorite" onClick={() => void handleFavorite(entry)} />
                       <ActionBadge active={entry.pinned} label="Pin" onClick={() => void handlePin(entry)} />
@@ -366,6 +544,17 @@ export default function App() {
                   <MetaLine label="Size" value={formatBytes(selectedEntry.sizeBytes)} />
                 </div>
 
+                <label className="tag-editor" htmlFor="tag-editor">
+                  <span>Tags</span>
+                  <input
+                    id="tag-editor"
+                    onBlur={() => void handleTagsSave()}
+                    onChange={(event) => setTagDraft(event.target.value)}
+                    placeholder="favorites, docs, reusable"
+                    value={tagDraft}
+                  />
+                </label>
+
                 <div className="preview-actions">
                   <button className="primary-button" onClick={() => void handleCopy(selectedEntry)} type="button">
                     Copy Again
@@ -402,9 +591,7 @@ export default function App() {
               <label>
                 <span>Capture status</span>
                 <select
-                  onChange={(event) =>
-                    void handleSettingsSave({ captureEnabled: event.target.value === "enabled" })
-                  }
+                  onChange={(event) => void handleSettingsSave({ captureEnabled: event.target.value === "enabled" })}
                   value={settings.captureEnabled ? "enabled" : "paused"}
                 >
                   <option value="enabled">Enabled</option>
@@ -429,22 +616,18 @@ export default function App() {
               <label>
                 <span>Quick access shortcut</span>
                 <input
-                  onBlur={(event) =>
-                    void handleSettingsSave({ shortcut: event.target.value || emptySettings.shortcut })
-                  }
+                  onBlur={(event) => void handleSettingsSave({ shortcut: event.target.value || emptySettings.shortcut })}
+                  onChange={(event) => setSettings((current) => ({ ...current, shortcut: event.target.value }))}
                   placeholder={emptySettings.shortcut}
                   type="text"
                   value={settings.shortcut}
-                  onChange={(event) => setSettings((current) => ({ ...current, shortcut: event.target.value }))}
                 />
               </label>
 
               <label>
                 <span>Launch at login</span>
                 <select
-                  onChange={(event) =>
-                    void handleSettingsSave({ launchAtLogin: event.target.value === "enabled" })
-                  }
+                  onChange={(event) => void handleSettingsSave({ launchAtLogin: event.target.value === "enabled" })}
                   value={autostartEnabled ? "enabled" : "disabled"}
                 >
                   <option value="enabled">Enabled</option>
@@ -485,6 +668,21 @@ export default function App() {
                   value={settings.excludedApps.join("\n")}
                 />
               </label>
+            </div>
+
+            <div className="settings-guidance">
+              <div className="settings-guidance-card">
+                <strong>Clipboard access</strong>
+                <span>Allow CopyTrack if macOS asks for pasteboard access, otherwise history capture may pause.</span>
+              </div>
+              <div className="settings-guidance-card">
+                <strong>Menu bar workflow</strong>
+                <span>The window hides instead of closing so the menu bar icon stays available for recovery and quick access.</span>
+              </div>
+              <div className="settings-guidance-card">
+                <strong>Login item</strong>
+                <span>Launch at login uses the system login item flow and can be disabled here at any time.</span>
+              </div>
             </div>
 
             <p className="settings-note">

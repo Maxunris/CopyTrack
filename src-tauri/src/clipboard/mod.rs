@@ -7,8 +7,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::history::{
-    fingerprint_for_files, fingerprint_for_image, fingerprint_for_text, HistoryItem, HistoryStore,
+    fingerprint_for_files, fingerprint_for_image, fingerprint_for_text, AppSettings, HistoryItem,
+    HistoryStore,
 };
+use crate::platform::macos::FrontmostApp;
 use crate::SharedState;
 
 #[derive(Debug, Clone)]
@@ -55,9 +57,20 @@ pub fn start_monitor(app: AppHandle, state: SharedState) {
 
         if let Some(capture) = read_clipboard_capture() {
             let fingerprint = capture.fingerprint();
+            let source_app = crate::platform::macos::frontmost_app();
             let mut last_seen = state.last_seen_fingerprint.lock().expect("clipboard lock poisoned");
+
+            if is_excluded_app(&settings, source_app.as_ref()) {
+                *last_seen = Some(fingerprint);
+                thread::sleep(Duration::from_millis(700));
+                continue;
+            }
+
             if last_seen.as_deref() != Some(fingerprint.as_str()) {
-                match state.store.insert_capture(&capture) {
+                match state
+                    .store
+                    .insert_capture(&capture, source_app.and_then(|app| app.name))
+                {
                     Ok(Some(_)) => {
                         *last_seen = Some(fingerprint);
                         let _ = app.emit(
@@ -77,6 +90,31 @@ pub fn start_monitor(app: AppHandle, state: SharedState) {
 
         thread::sleep(Duration::from_millis(700));
     });
+}
+
+fn is_excluded_app(settings: &AppSettings, source_app: Option<&FrontmostApp>) -> bool {
+    let Some(source_app) = source_app else {
+        return false;
+    };
+
+    let excluded = settings
+        .excluded_apps
+        .iter()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    if excluded.is_empty() {
+        return false;
+    }
+
+    let app_keys = [source_app.bundle_id.as_deref(), source_app.name.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(|value| value.trim().to_lowercase())
+        .collect::<Vec<_>>();
+
+    app_keys.iter().any(|value| excluded.contains(value))
 }
 
 pub fn read_clipboard_capture() -> Option<ClipboardCapture> {
@@ -130,5 +168,46 @@ pub fn copy_history_item(item: &HistoryItem, _store: &HistoryStore) -> Result<()
         _ => clipboard
             .set_text(item.full_text.clone().unwrap_or_else(|| item.preview_text.clone()))
             .map_err(|error| error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn excluded_apps_match_bundle_id_or_name() {
+        let settings = AppSettings {
+            capture_enabled: true,
+            history_limit: 100,
+            shortcut: "CommandOrControl+Shift+V".to_string(),
+            theme: "system".to_string(),
+            excluded_apps: vec!["com.apple.keychainaccess".to_string(), "1password".to_string()],
+            launch_at_login: false,
+        };
+
+        assert!(is_excluded_app(
+            &settings,
+            Some(&FrontmostApp {
+                name: Some("1Password".to_string()),
+                bundle_id: Some("com.1password.1password".to_string()),
+            }),
+        ));
+
+        assert!(is_excluded_app(
+            &settings,
+            Some(&FrontmostApp {
+                name: Some("Keychain Access".to_string()),
+                bundle_id: Some("com.apple.keychainaccess".to_string()),
+            }),
+        ));
+
+        assert!(!is_excluded_app(
+            &settings,
+            Some(&FrontmostApp {
+                name: Some("Notes".to_string()),
+                bundle_id: Some("com.apple.Notes".to_string()),
+            }),
+        ));
     }
 }
