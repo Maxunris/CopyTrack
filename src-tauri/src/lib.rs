@@ -167,7 +167,7 @@ fn ensure_quick_access_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn show_quick_access_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+pub(crate) fn show_quick_access_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     ensure_quick_access_window(app)?;
 
     if let Some(window) = app.get_webview_window("quick-access") {

@@ -19,6 +19,7 @@ export type AppSettings = {
   shortcut: string;
   theme: string;
   language: string;
+  onboardingCompleted: boolean;
   excludedApps: string[];
   launchAtLogin: boolean;
 };

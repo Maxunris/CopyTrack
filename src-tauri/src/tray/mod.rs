@@ -11,8 +11,14 @@ const RECENT_PREFIX: &str = "recent::";
 
 struct TrayCopy<'a> {
     open_app: &'a str,
+    open_quick_access: &'a str,
+    open_settings: &'a str,
+    latest_items: &'a str,
+    capture_active: &'a str,
+    capture_paused: &'a str,
     recent_empty: &'a str,
-    pause_resume: &'a str,
+    pause_capture: &'a str,
+    resume_capture: &'a str,
     clear_unpinned: &'a str,
     quit: &'a str,
 }
@@ -45,6 +51,13 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent, state: &SharedState) -> 
         "show" => {
             show_main_window(app)?;
         }
+        "open_quick_access" => {
+            crate::show_quick_access_window(app)?;
+        }
+        "open_settings" => {
+            show_main_window(app)?;
+            let _ = app.emit("app-navigation", serde_json::json!({ "destination": "settings" }));
+        }
         "toggle_capture" => {
             if let Ok(settings) = state.store.load_settings() {
                 let _ = state.store.save_settings(SettingsPatch {
@@ -53,6 +66,7 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent, state: &SharedState) -> 
                     shortcut: None,
                     theme: None,
                     language: None,
+                    onboarding_completed: None,
                     excluded_apps: None,
                     launch_at_login: None,
                 });
@@ -96,7 +110,26 @@ fn build_tray_menu(app: &AppHandle, state: &SharedState) -> tauri::Result<Menu<t
 
     let menu = Menu::new(app)?;
     menu.append(&MenuItemBuilder::with_id("show", copy.open_app).build(app)?)?;
+    menu.append(&MenuItemBuilder::with_id("open_quick_access", copy.open_quick_access).build(app)?)?;
+    menu.append(&MenuItemBuilder::with_id("open_settings", copy.open_settings).build(app)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(
+        &MenuItemBuilder::with_id(
+            "capture_status",
+            if settings.capture_enabled {
+                copy.capture_active
+            } else {
+                copy.capture_paused
+            },
+        )
+        .enabled(false)
+        .build(app)?,
+    )?;
+    menu.append(
+        &MenuItemBuilder::with_id("latest_items", copy.latest_items)
+            .enabled(false)
+            .build(app)?,
+    )?;
 
     if recent_entries.is_empty() {
         menu.append(
@@ -117,7 +150,17 @@ fn build_tray_menu(app: &AppHandle, state: &SharedState) -> tauri::Result<Menu<t
     }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItemBuilder::with_id("toggle_capture", copy.pause_resume).build(app)?)?;
+    menu.append(
+        &MenuItemBuilder::with_id(
+            "toggle_capture",
+            if settings.capture_enabled {
+                copy.pause_capture
+            } else {
+                copy.resume_capture
+            },
+        )
+        .build(app)?,
+    )?;
     menu.append(&MenuItemBuilder::with_id("clear_history", copy.clear_unpinned).build(app)?)?;
     menu.append(&MenuItemBuilder::with_id("quit", copy.quit).build(app)?)?;
     Ok(menu)
@@ -136,15 +179,45 @@ fn tray_copy(language: &str) -> TrayCopy<'static> {
         } else {
             "Open CopyTrack"
         },
+        open_quick_access: if is_ru {
+            "Открыть быстрый доступ"
+        } else {
+            "Open Quick Access"
+        },
+        open_settings: if is_ru {
+            "Открыть настройки"
+        } else {
+            "Open Settings"
+        },
+        latest_items: if is_ru {
+            "Последние скопированные"
+        } else {
+            "Latest copied items"
+        },
+        capture_active: if is_ru {
+            "Захват включен"
+        } else {
+            "Capture is active"
+        },
+        capture_paused: if is_ru {
+            "Захват на паузе"
+        } else {
+            "Capture is paused"
+        },
         recent_empty: if is_ru {
             "История пока пуста"
         } else {
             "No history yet"
         },
-        pause_resume: if is_ru {
-            "Пауза или возобновление"
+        pause_capture: if is_ru {
+            "Поставить на паузу"
         } else {
-            "Pause or Resume Capture"
+            "Pause Capture"
+        },
+        resume_capture: if is_ru {
+            "Возобновить захват"
+        } else {
+            "Resume Capture"
         },
         clear_unpinned: if is_ru {
             "Очистить незакрепленное"

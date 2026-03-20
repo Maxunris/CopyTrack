@@ -41,8 +41,10 @@ This checklist covers the current macOS-first desktop release.
 
 ## macOS Integration
 
-- Verify the menu bar icon opens the main window
-- Verify tray menu actions open history, pause capture, clear unpinned history, and quit
+- Verify the first-run onboarding appears on a fresh install and can be completed
+- Verify the menu bar icon opens a menu with the latest four copied items
+- Verify tray menu actions open history, quick access, settings, pause or resume capture, clear unpinned history, and quit
+- Verify clicking a recent tray item copies it back into the clipboard
 - Toggle launch at login and confirm the setting persists
 - Hide the main window and confirm the app remains reachable from the menu bar
 

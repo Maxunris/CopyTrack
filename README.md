@@ -16,9 +16,9 @@
 
 ## Why CopyTrack
 
-CopyTrack keeps the things you copy close at hand. Instead of losing useful snippets, links, images, or file references after the next copy, you get a searchable local history with favorites, pins, tags, and a keyboard-first quick popup.
+CopyTrack keeps the things you copy close at hand. Instead of losing useful snippets, links, images, or file references after the next copy, you get a searchable local history with favorites, pins, tags, a first-run onboarding flow, and a keyboard-first quick popup.
 
-Version `0.1.0` is focused on a strong macOS-first foundation. The long-term plan is cross-platform, but the product starts where menu bar workflows, global shortcuts, and polished utility-app ergonomics matter most.
+Version `1.0.0` is the first public macOS release. The long-term plan is cross-platform, but the product starts where menu bar workflows, global shortcuts, and polished utility-app ergonomics matter most.
 
 ## Current Features
 
@@ -26,7 +26,8 @@ Version `0.1.0` is focused on a strong macOS-first foundation. The long-term pla
 - Text, links, images, and file references
 - One-click re-copy from the main window and quick popup
 - Global shortcut with editable keybind
-- Menu bar presence and launch at login
+- Menu bar recent-items menu and launch at login
+- First-run onboarding inside the app
 - Favorites, pins, tags, filters, and sorting
 - Import and export as JSON snapshots
 - Retention presets: `50`, `100`, `500`, `1000`, `10000`
@@ -56,6 +57,10 @@ Version `0.1.0` is focused on a strong macOS-first foundation. The long-term pla
 5. Clicking an item copies it back into the clipboard immediately.
 
 ## Quick Start
+
+### Install On macOS
+
+Download the `.dmg` from GitHub Releases, open it, and move `CopyTrack.app` into `Applications`.
 
 ### Run From Source
 
@@ -102,11 +107,12 @@ Architecture notes are in [ARCHITECTURE.md](./ARCHITECTURE.md).
 ## Release Notes
 
 - Current release process notes: [RELEASE.md](./RELEASE.md)
+- `v1.0.0` release notes draft: [docs/releases/v1.0.0.md](./docs/releases/v1.0.0.md)
 - Future ideas and post-`1.0` expansion list: [NEXT.md](./NEXT.md)
 - Deferred sync architecture draft: [SYNC.md](./SYNC.md)
 - Competitor and feature research: [RESEARCH.md](./RESEARCH.md)
 
-For the future public `v1.0` release, the plan is to upload macOS release artifacts like `.dmg` bundles to GitHub Releases.
+The public `v1.0.0` release is intended to ship as a macOS `.dmg` bundle on GitHub Releases.
 
 ## Quality
 
@@ -114,7 +120,6 @@ The project already includes frontend and Rust tests for history filtering, sort
 
 ## Roadmap
 
-- Finish the dedicated production popup flow polish
 - Improve file handling depth on macOS pasteboard
 - Add encryption and cloud sync only after the local-first core is stable
 - Expand to Windows and Linux later

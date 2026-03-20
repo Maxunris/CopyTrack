@@ -184,6 +184,7 @@ mod tests {
             shortcut: "CommandOrControl+Shift+V".to_string(),
             theme: "system".to_string(),
             language: "system".to_string(),
+            onboarding_completed: false,
             excluded_apps: vec!["com.apple.keychainaccess".to_string(), "1password".to_string()],
             launch_at_login: false,
         };

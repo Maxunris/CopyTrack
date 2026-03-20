@@ -12,6 +12,7 @@ export const mockSettings: AppSettings = {
   shortcut: "CommandOrControl+Shift+V",
   theme: "system",
   language: "system",
+  onboardingCompleted: true,
   excludedApps: ["com.1password.1password"],
   launchAtLogin: true,
 };
@@ -62,10 +63,10 @@ export const mockEntries: HistoryItem[] = [
   {
     id: "file-copy",
     contentType: "file",
-    previewText: "File: CopyTrack_0.1.0_aarch64.dmg",
-    fullText: "/Users/max/PycharmProjects/CopyTrack/src-tauri/target/debug/bundle/dmg/CopyTrack_0.1.0_aarch64.dmg",
+    previewText: "File: CopyTrack_1.0.0_aarch64.dmg",
+    fullText: "/Users/max/PycharmProjects/CopyTrack/src-tauri/target/release/bundle/dmg/CopyTrack_1.0.0_aarch64.dmg",
     imagePath: null,
-    filePaths: ["/Users/max/PycharmProjects/CopyTrack/src-tauri/target/debug/bundle/dmg/CopyTrack_0.1.0_aarch64.dmg"],
+    filePaths: ["/Users/max/PycharmProjects/CopyTrack/src-tauri/target/release/bundle/dmg/CopyTrack_1.0.0_aarch64.dmg"],
     sourceApp: "Finder",
     createdAt: minutesAgo(35),
     favorite: false,

@@ -37,9 +37,28 @@ type HistoryChangedPayload = {
   reason: string;
 };
 
+type AppNavigationPayload = {
+  destination: string;
+};
+
 const contentFilters = ["all", "text", "link", "image", "file"];
 const isTauri = isTauriRuntime();
 const currentWindow = isTauri ? getCurrentWindow() : null;
+
+function readPreviewOptions() {
+  if (typeof window === "undefined") {
+    return {
+      panel: "",
+      language: "",
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return {
+    panel: params.get("panel") ?? "",
+    language: params.get("lang") ?? "",
+  };
+}
 
 const emptySettings: AppSettings = {
   captureEnabled: true,
@@ -47,12 +66,15 @@ const emptySettings: AppSettings = {
   shortcut: "CommandOrControl+Shift+V",
   theme: "system",
   language: "system",
+  onboardingCompleted: false,
   excludedApps: [],
   launchAtLogin: false,
 };
 
 export default function App() {
   const [routeHash, setRouteHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
+  const [previewPanel, setPreviewPanel] = useState(() => readPreviewOptions().panel);
+  const [previewLanguage, setPreviewLanguage] = useState(() => readPreviewOptions().language);
   const [entries, setEntries] = useState<HistoryItem[]>([]);
   const [allEntries, setAllEntries] = useState<HistoryItem[]>([]);
   const [settings, setSettings] = useState<AppSettings>(emptySettings);
@@ -66,6 +88,7 @@ export default function App() {
   const [tagDraft, setTagDraft] = useState("");
   const [supportedLimits, setSupportedLimits] = useState<number[]>([50, 100, 500, 1000, 10000]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [autostartEnabled, setAutostartEnabled] = useState(false);
   const [importMode, setImportMode] = useState<ImportMode>("merge");
   const [isLoading, setIsLoading] = useState(true);
@@ -74,6 +97,8 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState<string>(messages.en.watching);
   const deferredSearch = useDeferredValue(search);
   const isQuickAccess = currentWindow?.label === "quick-access" || routeHash === "#quick-access";
+  const settingsForced = previewPanel === "settings";
+  const onboardingForced = previewPanel === "onboarding";
   const uiLanguage = resolveUiLanguage(settings.language);
   const copy = messages[uiLanguage];
   const themeLabel = settings.theme === "light" ? copy.light : settings.theme === "dark" ? copy.dark : copy.system;
@@ -114,15 +139,21 @@ export default function App() {
   const hydrate = useCallback(async () => {
     setIsLoading(true);
     const bootstrap = await bootstrapApp();
-    setSettings(bootstrap.settings);
+    const nextSettings =
+      !isTauri && (previewLanguage === "en" || previewLanguage === "ru")
+        ? { ...bootstrap.settings, language: previewLanguage }
+        : bootstrap.settings;
+    setSettings(nextSettings);
     setEntries(bootstrap.entries);
     setAllEntries(bootstrap.entries);
     setSupportedLimits(bootstrap.supportedHistoryLimits);
     setSelectedId(bootstrap.entries[0]?.id ?? null);
-    setAutostartEnabled(isTauri ? await isEnabled().catch(() => false) : bootstrap.settings.launchAtLogin);
-    setStatusMessage(messages[resolveUiLanguage(bootstrap.settings.language)].watching);
+    setAutostartEnabled(isTauri ? await isEnabled().catch(() => false) : nextSettings.launchAtLogin);
+    setSettingsOpen(settingsForced);
+    setOnboardingOpen(onboardingForced || !nextSettings.onboardingCompleted);
+    setStatusMessage(messages[resolveUiLanguage(nextSettings.language)].watching);
     setIsLoading(false);
-  }, []);
+  }, [onboardingForced, previewLanguage, settingsForced]);
 
   useEffect(() => {
     void hydrate();
@@ -133,9 +164,19 @@ export default function App() {
       return;
     }
 
-    const syncHash = () => setRouteHash(window.location.hash);
-    window.addEventListener("hashchange", syncHash);
-    return () => window.removeEventListener("hashchange", syncHash);
+    const syncLocation = () => {
+      setRouteHash(window.location.hash);
+      const nextPreview = readPreviewOptions();
+      setPreviewPanel(nextPreview.panel);
+      setPreviewLanguage(nextPreview.language);
+    };
+
+    window.addEventListener("hashchange", syncLocation);
+    window.addEventListener("popstate", syncLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncLocation);
+      window.removeEventListener("popstate", syncLocation);
+    };
   }, []);
 
   useEffect(() => {
@@ -158,18 +199,38 @@ export default function App() {
       return;
     }
 
-    let unlisten: (() => void) | null = null;
+    let unlistenHistory: (() => void) | null = null;
+    let unlistenNavigation: (() => void) | null = null;
     void (async () => {
-      unlisten = await listen<HistoryChangedPayload>("history-changed", async () => {
+      unlistenHistory = await listen<HistoryChangedPayload>("history-changed", async () => {
         await refreshHistory();
         await refreshAllEntries();
+      });
+      unlistenNavigation = await listen<AppNavigationPayload>("app-navigation", async (event) => {
+        if (event.payload.destination === "settings") {
+          setSettingsOpen(true);
+        }
       });
     })();
 
     return () => {
-      unlisten?.();
+      unlistenHistory?.();
+      unlistenNavigation?.();
     };
   }, [isLoading, refreshAllEntries, refreshHistory]);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (settingsForced) {
+      setSettingsOpen(true);
+    }
+    if (onboardingForced) {
+      setOnboardingOpen(true);
+    }
+  }, [isLoading, onboardingForced, settingsForced]);
 
   useEffect(() => {
     if (!isQuickAccess || isLoading) {
@@ -242,6 +303,13 @@ export default function App() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function handleOnboardingComplete() {
+    if (!settings.onboardingCompleted) {
+      await handleSettingsSave({ onboardingCompleted: true });
+    }
+    setOnboardingOpen(false);
   }
 
   async function handleCopy(entry: HistoryItem) {
@@ -765,7 +833,55 @@ export default function App() {
               </div>
             </div>
 
+            <div className="settings-actions-row">
+              <button className="secondary-button" onClick={() => setOnboardingOpen(true)} type="button">
+                {copy.showOnboarding}
+              </button>
+            </div>
+
             <p className="settings-note">{copy.settingsNote(isSaving)}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {onboardingOpen ? (
+        <div className="settings-sheet onboarding-sheet">
+          <div className="onboarding-card glass-panel">
+            <div className="settings-header">
+              <div>
+                <p className="eyebrow">{copy.onboardingEyebrow}</p>
+                <h3>{copy.onboardingTitle}</h3>
+                <p className="lede onboarding-lede">{copy.onboardingBody}</p>
+              </div>
+              <button className="ghost-button" onClick={() => void handleOnboardingComplete()} type="button">
+                {copy.close}
+              </button>
+            </div>
+
+            <div className="onboarding-grid">
+              <OnboardingCard title={copy.onboardingPermissionTitle} body={copy.onboardingPermissionBody} />
+              <OnboardingCard title={copy.onboardingMenuBarStepTitle} body={copy.onboardingMenuBarStepBody} />
+              <OnboardingCard title={copy.onboardingShortcutStepTitle} body={copy.onboardingShortcutStepBody(settings.shortcut)} />
+            </div>
+
+            <div className="onboarding-actions">
+              <button className="secondary-button" onClick={() => void openQuickAccess()} type="button">
+                {copy.onboardingOpenQuickAccess}
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setSettingsOpen(true);
+                  setOnboardingOpen(false);
+                }}
+                type="button"
+              >
+                {copy.onboardingOpenSettings}
+              </button>
+              <button className="primary-button" onClick={() => void handleOnboardingComplete()} type="button">
+                {copy.onboardingFinish}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -827,5 +943,14 @@ function ActionBadge({
     >
       {label}
     </span>
+  );
+}
+
+function OnboardingCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="onboarding-step">
+      <strong>{title}</strong>
+      <span>{body}</span>
+    </div>
   );
 }

@@ -5,7 +5,7 @@
 For macOS, the current debug bundle is generated at:
 
 - `src-tauri/target/debug/bundle/macos/CopyTrack.app`
-- `src-tauri/target/debug/bundle/dmg/CopyTrack_0.1.0_aarch64.dmg`
+- `src-tauri/target/debug/bundle/dmg/CopyTrack_1.0.0_aarch64.dmg`
 
 For production releases, use the release build instead of debug:
 
@@ -28,7 +28,7 @@ npm run tauri build
 
 ## GitHub Release Assets
 
-For `v1.0`, upload at least:
+For `v1.0.0`, upload at least:
 
 - `CopyTrack_<version>_aarch64.dmg`
 

@@ -3,10 +3,11 @@
 ## First Launch On macOS
 
 1. Open CopyTrack.
-2. Keep the app running so the menu bar icon stays available.
-3. Copy a few test items from Notes, Safari, or Finder.
-4. Press `Cmd+Shift+V` to open Quick Access.
-5. Click any history item to copy it back into the clipboard.
+2. The app now shows a first-run onboarding sheet automatically.
+3. Keep the app running so the menu bar icon stays available.
+4. Copy a few test items from Notes, Safari, or Finder.
+5. Press `Cmd+Shift+V` to open Quick Access.
+6. Click any history item to copy it back into the clipboard.
 
 ## Permissions And System Behavior
 
@@ -20,7 +21,7 @@ CopyTrack uses the system login-item flow. You can enable or disable it from Set
 
 ### Menu Bar
 
-Closing the window hides it instead of quitting the app. This keeps the menu bar icon available as the main recovery point.
+Closing the window hides it instead of quitting the app. This keeps the menu bar icon available as the main recovery point. The menu also shows the latest four clipboard items for immediate re-copy.
 
 ## Recommended Setup
 

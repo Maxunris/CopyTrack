@@ -30,11 +30,13 @@ import App from "./App";
 describe("App", () => {
   beforeEach(() => {
     window.location.hash = "";
+    window.history.replaceState({}, "", "/");
   });
 
   afterEach(() => {
     cleanup();
     window.location.hash = "";
+    window.history.replaceState({}, "", "/");
   });
 
   it("renders the main workspace in browser mock mode", async () => {
@@ -62,5 +64,23 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "CopyTrack popup" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search copied content")).toBeInTheDocument();
     expect(screen.getByText("Arrow keys to navigate")).toBeInTheDocument();
+  });
+
+  it("renders russian copy when the preview lang is forced", async () => {
+    window.history.replaceState({}, "", "/?lang=ru");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Найди все, что копировал" })).toBeInTheDocument();
+    expect(screen.getByText("Открыть быстрый доступ")).toBeInTheDocument();
+  });
+
+  it("opens onboarding when the onboarding preview panel is requested", async () => {
+    window.history.replaceState({}, "", "/?panel=onboarding");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Set up CopyTrack in a minute" })).toBeInTheDocument();
+    expect(screen.getByText("Try Quick Access")).toBeInTheDocument();
   });
 });

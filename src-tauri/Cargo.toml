@@ -1,6 +1,6 @@
 [package]
 name = "copytrack"
-version = "0.1.0"
+version = "1.0.0"
 description = "CopyTrack clipboard history utility"
 authors = ["Max"]
 edition = "2021"

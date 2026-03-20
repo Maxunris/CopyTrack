@@ -43,7 +43,7 @@ button {
 .app-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 22px;
   min-height: 100vh;
   padding: 22px;
@@ -528,23 +528,6 @@ button {
   color: rgba(231, 238, 252, 0.68);
 }
 
-.permission-card {
-  padding: 18px;
-  border-radius: 20px;
-  background: rgba(6, 12, 28, 0.28);
-  line-height: 1.6;
-  color: rgba(231, 238, 252, 0.82);
-}
-
-.permission-card h3 {
-  margin: 0 0 10px;
-  font-size: 1.05rem;
-}
-
-.permission-card p:last-child {
-  margin-bottom: 0;
-}
-
 .settings-guidance {
   display: grid;
   gap: 12px;
@@ -599,6 +582,57 @@ button {
   gap: 8px;
   min-width: 240px;
   flex: 1;
+}
+
+.settings-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.onboarding-sheet {
+  align-items: center;
+}
+
+.onboarding-card {
+  width: min(860px, 100%);
+  padding: 28px;
+}
+
+.onboarding-lede {
+  max-width: 54ch;
+}
+
+.onboarding-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.onboarding-step {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(7, 15, 34, 0.34);
+}
+
+.onboarding-step strong {
+  font-size: 1rem;
+}
+
+.onboarding-step span {
+  color: rgba(231, 238, 252, 0.76);
+  line-height: 1.55;
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 22px;
 }
 
 .quick-access-shell {
@@ -696,6 +730,7 @@ button {
   .hero-actions,
   .preview-actions,
   .portability-actions,
+  .onboarding-actions,
   .settings-header,
   .quick-access-header,
   .quick-search-row {
@@ -703,6 +738,10 @@ button {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-grid {
     grid-template-columns: 1fr;
   }
 }
