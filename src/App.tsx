@@ -528,6 +528,9 @@ export default function App() {
           </div>
 
           <div className="toolbar-actions">
+            <button className="secondary-button toolbar-settings-button" onClick={() => void setSettingsOpen(true)} type="button">
+              {copy.openSettings}
+            </button>
             <label className="search-field" htmlFor="history-search">
               <span>{copy.search}</span>
               <input
@@ -606,6 +609,11 @@ export default function App() {
                   onClick={() => void handleCopy(entry)}
                   type="button"
                 >
+                  {entry.contentType === "image" && entry.imagePath ? (
+                    <div className="history-row-image">
+                      <img alt={entry.previewText} src={convertFileSrc(entry.imagePath)} />
+                    </div>
+                  ) : null}
                   <div className="history-row-top">
                     <span className={`type-pill type-${entry.contentType}`}>{typeLabel(entry.contentType, uiLanguage)}</span>
                     <span className="meta-text">{relativeDateLabel(entry.createdAt, uiLanguage)}</span>

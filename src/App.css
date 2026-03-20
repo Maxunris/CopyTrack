@@ -273,6 +273,12 @@ button {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.toolbar-settings-button {
+  white-space: nowrap;
 }
 
 .search-field,
@@ -373,6 +379,21 @@ button {
   color: inherit;
   padding: 16px;
   text-align: left;
+}
+
+.history-row-image {
+  overflow: hidden;
+  width: 100%;
+  height: 132px;
+  border-radius: 18px;
+  background: rgba(4, 10, 24, 0.5);
+}
+
+.history-row-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .history-row.selected,

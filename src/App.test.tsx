@@ -45,12 +45,13 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "CopyTrack" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Find anything you copied" })).toBeInTheDocument();
     expect(await screen.findByText("Open Quick Access")).toBeInTheDocument();
+    expect(await screen.findAllByRole("button", { name: "Open Settings" })).toHaveLength(2);
   });
 
   it("shows import and export actions in settings", async () => {
     render(<App />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Open Settings" })[0]);
 
     expect(await screen.findByRole("button", { name: "Export History" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import History" })).toBeInTheDocument();
@@ -92,5 +93,11 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Set up CopyTrack in a minute" })).toBeInTheDocument();
     expect(screen.getByText("Try Quick Access")).toBeInTheDocument();
+  });
+
+  it("renders an image preview in history rows for copied images", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("img", { name: "CopyTrack gradient concept" })).toBeInTheDocument();
   });
 });
