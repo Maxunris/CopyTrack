@@ -66,6 +66,16 @@ describe("App", () => {
     expect(screen.getByText("Arrow keys to navigate")).toBeInTheDocument();
   });
 
+  it("closes the quick access surface when close is pressed", async () => {
+    window.location.hash = "#quick-access";
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Close" }));
+
+    expect(window.location.hash).toBe("");
+  });
+
   it("renders russian copy when the preview lang is forced", async () => {
     window.history.replaceState({}, "", "/?lang=ru");
 

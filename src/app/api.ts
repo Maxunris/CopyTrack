@@ -123,6 +123,16 @@ export function openQuickAccess() {
   return invoke<void>("open_quick_access");
 }
 
+export function hideQuickAccess() {
+  if (!isTauriRuntime()) {
+    if (typeof window !== "undefined") {
+      window.location.hash = "";
+    }
+    return Promise.resolve();
+  }
+  return invoke<void>("hide_quick_access");
+}
+
 export async function exportHistory() {
   if (!isTauriRuntime()) {
     const archive = JSON.stringify(

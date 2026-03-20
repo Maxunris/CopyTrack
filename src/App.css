@@ -40,6 +40,18 @@ button {
   min-height: 100vh;
 }
 
+.window-drag-strip-handle {
+  width: 100%;
+  height: 18px;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.window-drag-strip-handle:active {
+  cursor: grabbing;
+}
+
 .app-shell {
   position: relative;
   display: grid;
@@ -74,6 +86,13 @@ button {
 .hero-column,
 .content-column {
   padding: 24px;
+}
+
+.app-drag-strip {
+  grid-column: 1 / -1;
+  position: relative;
+  z-index: 2;
+  margin-bottom: -12px;
 }
 
 .hero-column {
@@ -498,6 +517,10 @@ button {
 .settings-card {
   width: min(760px, 100%);
   padding: 24px;
+}
+
+.modal-drag-strip {
+  margin-bottom: 6px;
 }
 
 .settings-header {

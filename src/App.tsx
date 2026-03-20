@@ -11,6 +11,7 @@ import {
   isTauriRuntime,
   deleteHistoryItems,
   exportHistory,
+  hideQuickAccess,
   importHistory,
   listHistory,
   openQuickAccess,
@@ -43,7 +44,10 @@ type AppNavigationPayload = {
 
 const contentFilters = ["all", "text", "link", "image", "file"];
 const isTauri = isTauriRuntime();
-const currentWindow = isTauri ? getCurrentWindow() : null;
+
+function getRuntimeWindow() {
+  return isTauriRuntime() ? getCurrentWindow() : null;
+}
 
 function readPreviewOptions() {
   if (typeof window === "undefined") {
@@ -96,6 +100,7 @@ export default function App() {
   const [isPortingData, setIsPortingData] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(messages.en.watching);
   const deferredSearch = useDeferredValue(search);
+  const currentWindow = getRuntimeWindow();
   const isQuickAccess = currentWindow?.label === "quick-access" || routeHash === "#quick-access";
   const settingsForced = previewPanel === "settings";
   const onboardingForced = previewPanel === "onboarding";
@@ -246,9 +251,7 @@ export default function App() {
 
       if (event.key === "Escape") {
         event.preventDefault();
-        if (currentWindow) {
-          void currentWindow.hide();
-        }
+        void closeQuickAccessSurface();
         return;
       }
 
@@ -281,7 +284,7 @@ export default function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isLoading, selectedEntry, visibleEntries]);
+  }, [closeQuickAccessSurface, isLoading, selectedEntry, visibleEntries]);
 
   async function handleSettingsSave(patch: Partial<AppSettings>) {
     setIsSaving(true);
@@ -312,14 +315,20 @@ export default function App() {
     setOnboardingOpen(false);
   }
 
+  async function closeQuickAccessSurface() {
+    await hideQuickAccess();
+    if (typeof window !== "undefined") {
+      window.location.hash = "";
+    }
+    setRouteHash("");
+  }
+
   async function handleCopy(entry: HistoryItem) {
     await copyEntry(entry.id);
     setSelectedId(entry.id);
     setStatusMessage(copy.copiedItem(typeLabel(entry.contentType, uiLanguage)));
-    if (currentWindow && isQuickAccess) {
-      await currentWindow.hide();
-    } else if (isQuickAccess && typeof window !== "undefined") {
-      window.location.hash = "";
+    if (isQuickAccess) {
+      await closeQuickAccessSurface();
     }
   }
 
@@ -399,22 +408,13 @@ export default function App() {
   if (isQuickAccess) {
     return (
       <div className="quick-access-shell">
+        <WindowDragStrip className="window-drag-strip" />
         <div className="quick-access-header">
           <div>
             <p className="eyebrow">{copy.quickAccessEyebrow}</p>
             <h2>{copy.quickAccessTitle}</h2>
           </div>
-          <button
-            className="ghost-button"
-            onClick={() => {
-              if (currentWindow) {
-                void currentWindow.hide();
-              } else if (typeof window !== "undefined") {
-                window.location.hash = "";
-              }
-            }}
-            type="button"
-          >
+          <button className="ghost-button" onClick={() => void closeQuickAccessSurface()} type="button">
             {copy.close}
           </button>
         </div>
@@ -478,6 +478,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="app-background" />
+      <WindowDragStrip className="window-drag-strip app-drag-strip" />
       <aside className="hero-column glass-panel">
         <div className="brand-lockup">
           <div className="brand-icon">
@@ -690,6 +691,7 @@ export default function App() {
       {settingsOpen ? (
         <div className="settings-sheet">
           <div className="settings-card glass-panel">
+            <WindowDragStrip className="window-drag-strip modal-drag-strip" />
             <div className="settings-header">
               <div>
                 <p className="eyebrow">{copy.preferencesEyebrow}</p>
@@ -847,6 +849,7 @@ export default function App() {
       {onboardingOpen ? (
         <div className="settings-sheet onboarding-sheet">
           <div className="onboarding-card glass-panel">
+            <WindowDragStrip className="window-drag-strip modal-drag-strip" />
             <div className="settings-header">
               <div>
                 <p className="eyebrow">{copy.onboardingEyebrow}</p>
@@ -952,5 +955,20 @@ function OnboardingCard({ title, body }: { title: string; body: string }) {
       <strong>{title}</strong>
       <span>{body}</span>
     </div>
+  );
+}
+
+function WindowDragStrip({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`window-drag-strip-handle ${className}`.trim()}
+      data-tauri-drag-region
+      onMouseDown={() => {
+        const windowHandle = getRuntimeWindow();
+        if (windowHandle) {
+          void windowHandle.startDragging().catch(() => undefined);
+        }
+      }}
+    />
   );
 }

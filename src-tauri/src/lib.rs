@@ -113,6 +113,14 @@ fn open_quick_access(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn hide_quick_access(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("quick-access") {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn export_history(path: String, state: State<SharedState>) -> Result<ExportSummary, String> {
     state
         .store
@@ -253,6 +261,7 @@ pub fn run() {
             save_tags,
             copy_entry,
             open_quick_access,
+            hide_quick_access,
             export_history,
             import_history
         ])
