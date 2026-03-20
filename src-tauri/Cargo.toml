@@ -1,0 +1,38 @@
+[package]
+name = "copytrack"
+version = "0.1.0"
+description = "CopyTrack clipboard history utility"
+authors = ["Max"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "copytrack_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+arboard = "3.6.1"
+chrono = { version = "0.4.42", features = ["serde"] }
+dirs = "6.0.0"
+image = { version = "0.25.8", default-features = false, features = ["png"] }
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+sha2 = "0.10.9"
+thiserror = "2.0.17"
+uuid = { version = "1.18.1", features = ["v4", "serde"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSPasteboard", "NSPasteboardItem"] }
+objc2-foundation = "0.3.2"
