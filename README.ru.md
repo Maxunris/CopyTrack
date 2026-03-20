@@ -88,6 +88,7 @@ npm run tauri build
 
 - Архитектура: [ARCHITECTURE.md](./ARCHITECTURE.md)
 - Релизный процесс: [RELEASE.md](./RELEASE.md)
+- Подпись и notarization для macOS: [docs/SIGNING.md](./docs/SIGNING.md)
 - Черновик release notes для `v1.0.0`: [docs/releases/v1.0.0.md](./docs/releases/v1.0.0.md)
 - Следующие идеи: [NEXT.md](./NEXT.md)
 - Draft по sync: [SYNC.md](./SYNC.md)

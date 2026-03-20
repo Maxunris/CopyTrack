@@ -107,6 +107,7 @@ Architecture notes are in [ARCHITECTURE.md](./ARCHITECTURE.md).
 ## Release Notes
 
 - Current release process notes: [RELEASE.md](./RELEASE.md)
+- Signing and notarization setup: [docs/SIGNING.md](./docs/SIGNING.md)
 - `v1.0.0` release notes draft: [docs/releases/v1.0.0.md](./docs/releases/v1.0.0.md)
 - Future ideas and post-`1.0` expansion list: [NEXT.md](./NEXT.md)
 - Deferred sync architecture draft: [SYNC.md](./SYNC.md)

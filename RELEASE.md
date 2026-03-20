@@ -22,28 +22,31 @@ npm run tauri build
    - `npm run tauri build`
 2. Confirm the README is up to date with screenshots and install instructions.
 3. Confirm no secrets, local caches, logs, `dist/`, or `node_modules/` are staged.
-4. Build macOS release artifacts.
-5. Upload the generated `.dmg` and, if useful, the `.app` archive to GitHub Releases.
-6. Publish release notes describing features, fixes, known limitations, and minimum supported macOS version.
+4. Confirm signing and notarization secrets are configured in GitHub.
+5. Create or update a `v*` tag for the release version.
+6. Let the GitHub Actions release workflow build the signed and notarized macOS bundle.
+7. Verify the generated `.dmg`, zipped `.app`, and checksum file in the GitHub Release.
+8. Publish release notes describing features, fixes, known limitations, and minimum supported macOS version.
 
 ## GitHub Release Assets
 
-For `v1.0.0`, upload at least:
+For public macOS releases, publish at least:
 
 - `CopyTrack_<version>_aarch64.dmg`
+- `CopyTrack_<version>_aarch64.app.zip`
+- `CopyTrack_<version>_SHA256.txt`
 
-Optional extras:
-
-- zipped `CopyTrack.app`
-- checksum file
-- changelog text
+Release notes should live in `docs/releases/<version>.md` when available.
 
 ## Signing and Notarization
 
-Not configured yet. Before the first public macOS release, add:
+The repository now includes a macOS release workflow at `.github/workflows/macos-release.yml`.
 
-- Apple Developer signing identity
-- notarization credentials
-- stapling step for the final DMG
+It expects Apple credentials through GitHub Secrets and performs:
 
-These steps should be added before tagging a public `1.0.0` release.
+- code signing with `Developer ID Application`
+- notarization through App Store Connect API credentials
+- stapling and validation for the built `.app` and `.dmg`
+- upload to GitHub Releases on `v*` tags
+
+Setup details, required secrets, and local verification commands are documented in [docs/SIGNING.md](./docs/SIGNING.md).

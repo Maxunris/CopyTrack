@@ -24,3 +24,6 @@ target/
 release/
 artifacts/
 *.log
+*.p12
+*.p8
+.secrets/
