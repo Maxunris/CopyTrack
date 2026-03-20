@@ -11,6 +11,7 @@ export const mockSettings: AppSettings = {
   historyLimit: 500,
   shortcut: "CommandOrControl+Shift+V",
   theme: "system",
+  language: "system",
   excludedApps: ["com.1password.1password"],
   launchAtLogin: true,
 };

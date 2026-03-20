@@ -73,6 +73,7 @@ pub fn start_monitor(app: AppHandle, state: SharedState) {
                 {
                     Ok(Some(_)) => {
                         *last_seen = Some(fingerprint);
+                        let _ = crate::tray::refresh_tray_menu(&app, &state);
                         let _ = app.emit(
                             "history-changed",
                             HistoryChangedEvent {
@@ -182,6 +183,7 @@ mod tests {
             history_limit: 100,
             shortcut: "CommandOrControl+Shift+V".to_string(),
             theme: "system".to_string(),
+            language: "system".to_string(),
             excluded_apps: vec!["com.apple.keychainaccess".to_string(), "1password".to_string()],
             launch_at_login: false,
         };

@@ -42,6 +42,7 @@ pub struct AppSettings {
     pub history_limit: u32,
     pub shortcut: String,
     pub theme: String,
+    pub language: String,
     pub excluded_apps: Vec<String>,
     pub launch_at_login: bool,
 }
@@ -53,6 +54,7 @@ impl Default for AppSettings {
             history_limit: DEFAULT_HISTORY_LIMIT,
             shortcut: DEFAULT_SHORTCUT.to_string(),
             theme: "system".to_string(),
+            language: "system".to_string(),
             excluded_apps: Vec::new(),
             launch_at_login: false,
         }
@@ -66,6 +68,7 @@ pub struct SettingsPatch {
     pub history_limit: Option<u32>,
     pub shortcut: Option<String>,
     pub theme: Option<String>,
+    pub language: Option<String>,
     pub excluded_apps: Option<Vec<String>>,
     pub launch_at_login: Option<bool>,
 }
@@ -194,6 +197,7 @@ impl HistoryStore {
               history_limit INTEGER NOT NULL,
               shortcut TEXT NOT NULL,
               theme TEXT NOT NULL,
+              language TEXT NOT NULL DEFAULT 'system',
               excluded_apps_json TEXT NOT NULL,
               launch_at_login INTEGER NOT NULL
             );
@@ -229,15 +233,21 @@ impl HistoryStore {
             ",
         )?;
 
+        let _ = connection.execute(
+            "ALTER TABLE settings ADD COLUMN language TEXT NOT NULL DEFAULT 'system'",
+            [],
+        );
+
         let default_settings = AppSettings::default();
         connection.execute(
-            "INSERT OR IGNORE INTO settings (id, capture_enabled, history_limit, shortcut, theme, excluded_apps_json, launch_at_login)
-             VALUES (1, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO settings (id, capture_enabled, history_limit, shortcut, theme, language, excluded_apps_json, launch_at_login)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 bool_to_int(default_settings.capture_enabled),
                 default_settings.history_limit,
                 default_settings.shortcut,
                 default_settings.theme,
+                default_settings.language,
                 serde_json::to_string(&default_settings.excluded_apps)?,
                 bool_to_int(default_settings.launch_at_login),
             ],
@@ -268,18 +278,19 @@ impl HistoryStore {
     pub fn load_settings(&self) -> Result<AppSettings, StoreError> {
         let connection = self.connection()?;
         let settings = connection.query_row(
-            "SELECT capture_enabled, history_limit, shortcut, theme, excluded_apps_json, launch_at_login FROM settings WHERE id = 1",
+            "SELECT capture_enabled, history_limit, shortcut, theme, language, excluded_apps_json, launch_at_login FROM settings WHERE id = 1",
             [],
             |row| {
-                let excluded_apps_json: String = row.get(4)?;
+                let excluded_apps_json: String = row.get(5)?;
                 let excluded_apps = serde_json::from_str(&excluded_apps_json).unwrap_or_default();
                 Ok(AppSettings {
                     capture_enabled: row.get::<_, i64>(0)? != 0,
                     history_limit: row.get::<_, u32>(1)?,
                     shortcut: row.get(2)?,
                     theme: row.get(3)?,
+                    language: row.get(4)?,
                     excluded_apps,
-                    launch_at_login: row.get::<_, i64>(5)? != 0,
+                    launch_at_login: row.get::<_, i64>(6)? != 0,
                 })
             },
         )?;
@@ -297,6 +308,7 @@ impl HistoryStore {
                 .unwrap_or(current.history_limit),
             shortcut: patch.shortcut.unwrap_or(current.shortcut),
             theme: patch.theme.unwrap_or(current.theme),
+            language: patch.language.unwrap_or(current.language),
             excluded_apps: patch.excluded_apps.unwrap_or(current.excluded_apps),
             launch_at_login: patch.launch_at_login.unwrap_or(current.launch_at_login),
         };
@@ -304,13 +316,14 @@ impl HistoryStore {
         let connection = self.connection()?;
         connection.execute(
             "UPDATE settings
-             SET capture_enabled = ?, history_limit = ?, shortcut = ?, theme = ?, excluded_apps_json = ?, launch_at_login = ?
+             SET capture_enabled = ?, history_limit = ?, shortcut = ?, theme = ?, language = ?, excluded_apps_json = ?, launch_at_login = ?
              WHERE id = 1",
             params![
                 bool_to_int(updated.capture_enabled),
                 updated.history_limit,
                 updated.shortcut,
                 updated.theme,
+                updated.language,
                 serde_json::to_string(&updated.excluded_apps)?,
                 bool_to_int(updated.launch_at_login),
             ],
@@ -360,6 +373,7 @@ impl HistoryStore {
                 history_limit: Some(archive.settings.history_limit),
                 shortcut: Some(archive.settings.shortcut.clone()),
                 theme: Some(archive.settings.theme.clone()),
+                language: Some(archive.settings.language.clone()),
                 excluded_apps: Some(archive.settings.excluded_apps.clone()),
                 launch_at_login: Some(archive.settings.launch_at_login),
             })?;
@@ -1194,6 +1208,7 @@ mod tests {
                 history_limit: Some(500),
                 shortcut: Some("CommandOrControl+Shift+V".to_string()),
                 theme: Some("dark".to_string()),
+                language: Some("ru".to_string()),
                 excluded_apps: Some(vec!["com.1password.1password".to_string()]),
                 launch_at_login: Some(true),
             })
@@ -1226,6 +1241,10 @@ mod tests {
         assert_eq!(import_summary.imported_count, 1);
         assert_eq!(import_summary.skipped_count, 0);
         assert_eq!(target_store.load_settings().expect("settings should load").theme, "dark");
+        assert_eq!(
+            target_store.load_settings().expect("settings should load").language,
+            "ru"
+        );
 
         let imported_entries = target_store
             .list_entries(&HistoryQuery {

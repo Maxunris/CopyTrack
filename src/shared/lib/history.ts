@@ -1,42 +1,43 @@
 import type { HistoryItem } from "../types/history";
+import type { UiLanguage } from "../i18n";
 
 export type SortMode = "recent" | "oldest" | "favorites" | "type";
 
-export function typeLabel(contentType: string) {
+export function typeLabel(contentType: string, language: UiLanguage = "en") {
   switch (contentType) {
     case "link":
-      return "Link";
+      return language === "ru" ? "Ссылка" : "Link";
     case "image":
-      return "Image";
+      return language === "ru" ? "Изображение" : "Image";
     case "file":
-      return "File";
+      return language === "ru" ? "Файл" : "File";
     default:
-      return "Text";
+      return language === "ru" ? "Текст" : "Text";
   }
 }
 
-export function relativeDateLabel(value: string) {
+export function relativeDateLabel(value: string, language: UiLanguage = "en") {
   const createdAt = new Date(value).getTime();
   const deltaMinutes = Math.max(0, Math.floor((Date.now() - createdAt) / 60000));
 
   if (deltaMinutes < 1) {
-    return "just now";
+    return language === "ru" ? "только что" : "just now";
   }
   if (deltaMinutes < 60) {
-    return `${deltaMinutes}m ago`;
+    return language === "ru" ? `${deltaMinutes} мин назад` : `${deltaMinutes}m ago`;
   }
 
   const deltaHours = Math.floor(deltaMinutes / 60);
   if (deltaHours < 24) {
-    return `${deltaHours}h ago`;
+    return language === "ru" ? `${deltaHours} ч назад` : `${deltaHours}h ago`;
   }
 
   const deltaDays = Math.floor(deltaHours / 24);
   if (deltaDays < 7) {
-    return `${deltaDays}d ago`;
+    return language === "ru" ? `${deltaDays} дн назад` : `${deltaDays}d ago`;
   }
 
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(language === "ru" ? "ru" : "en", {
     month: "short",
     day: "numeric",
   }).format(new Date(value));

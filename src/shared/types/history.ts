@@ -18,6 +18,7 @@ export type AppSettings = {
   historyLimit: number;
   shortcut: string;
   theme: string;
+  language: string;
   excludedApps: string[];
   launchAtLogin: boolean;
 };

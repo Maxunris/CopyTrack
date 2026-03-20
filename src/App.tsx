@@ -29,6 +29,7 @@ import {
   typeLabel,
   type SortMode,
 } from "./shared/lib/history";
+import { messages, resolveUiLanguage } from "./shared/i18n";
 import type { AppSettings, HistoryItem, HistoryQuery, ImportMode } from "./shared/types/history";
 import "./App.css";
 
@@ -45,6 +46,7 @@ const emptySettings: AppSettings = {
   historyLimit: 100,
   shortcut: "CommandOrControl+Shift+V",
   theme: "system",
+  language: "system",
   excludedApps: [],
   launchAtLogin: false,
 };
@@ -69,9 +71,12 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isPortingData, setIsPortingData] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("Watching your clipboard locally");
+  const [statusMessage, setStatusMessage] = useState<string>(messages.en.watching);
   const deferredSearch = useDeferredValue(search);
   const isQuickAccess = currentWindow?.label === "quick-access" || routeHash === "#quick-access";
+  const uiLanguage = resolveUiLanguage(settings.language);
+  const copy = messages[uiLanguage];
+  const themeLabel = settings.theme === "light" ? copy.light : settings.theme === "dark" ? copy.dark : copy.system;
 
   const scopedEntries = filterEntries(entries, "", false, false, "all", selectedTag);
   const visibleEntries = sortEntries(scopedEntries, sortMode);
@@ -115,6 +120,7 @@ export default function App() {
     setSupportedLimits(bootstrap.supportedHistoryLimits);
     setSelectedId(bootstrap.entries[0]?.id ?? null);
     setAutostartEnabled(isTauri ? await isEnabled().catch(() => false) : bootstrap.settings.launchAtLogin);
+    setStatusMessage(messages[resolveUiLanguage(bootstrap.settings.language)].watching);
     setIsLoading(false);
   }, []);
 
@@ -230,7 +236,7 @@ export default function App() {
 
       const nextSettings = await saveSettings(patch);
       setSettings(nextSettings);
-      setStatusMessage("Settings saved");
+      setStatusMessage(messages[resolveUiLanguage(nextSettings.language)].settingsSaved);
       await refreshAllEntries();
       await refreshHistory();
     } finally {
@@ -241,7 +247,7 @@ export default function App() {
   async function handleCopy(entry: HistoryItem) {
     await copyEntry(entry.id);
     setSelectedId(entry.id);
-    setStatusMessage(`Copied ${typeLabel(entry.contentType).toLowerCase()} item back to clipboard`);
+    setStatusMessage(copy.copiedItem(typeLabel(entry.contentType, uiLanguage)));
     if (currentWindow && isQuickAccess) {
       await currentWindow.hide();
     } else if (isQuickAccess && typeof window !== "undefined") {
@@ -251,28 +257,28 @@ export default function App() {
 
   async function handleFavorite(entry: HistoryItem) {
     await toggleFavorite(entry.id, !entry.favorite);
-    setStatusMessage(entry.favorite ? "Removed from favorites" : "Added to favorites");
+    setStatusMessage(entry.favorite ? copy.favoriteOff : copy.favoriteOn);
     await refreshAllEntries();
     await refreshHistory();
   }
 
   async function handlePin(entry: HistoryItem) {
     await togglePin(entry.id, !entry.pinned);
-    setStatusMessage(entry.pinned ? "Removed pin" : "Pinned for quick reuse");
+    setStatusMessage(entry.pinned ? copy.pinOff : copy.pinOn);
     await refreshAllEntries();
     await refreshHistory();
   }
 
   async function handleDelete(entry: HistoryItem) {
     await deleteHistoryItems([entry.id]);
-    setStatusMessage("Entry deleted");
+    setStatusMessage(copy.entryDeleted);
     await refreshAllEntries();
     await refreshHistory();
   }
 
   async function handleClear() {
     await clearUnpinnedHistory();
-    setStatusMessage("Cleared unpinned history");
+    setStatusMessage(copy.cleared);
     await refreshAllEntries();
     await refreshHistory();
   }
@@ -287,7 +293,7 @@ export default function App() {
       .map((tag) => tag.trim())
       .filter(Boolean);
     await saveTags(selectedEntry.id, nextTags);
-    setStatusMessage("Tags updated");
+    setStatusMessage(copy.tagsUpdated);
     await refreshAllEntries();
     await refreshHistory();
   }
@@ -297,10 +303,10 @@ export default function App() {
     try {
       const result = await exportHistory();
       if (!result) {
-        setStatusMessage("Export canceled");
+        setStatusMessage(copy.exportCanceled);
         return;
       }
-      setStatusMessage(`Exported ${result.entryCount} items to ${result.path.split("/").pop()}`);
+      setStatusMessage(copy.exportSummary(result.entryCount, result.path.split("/").pop() ?? result.path));
     } finally {
       setIsPortingData(false);
     }
@@ -311,13 +317,12 @@ export default function App() {
     try {
       const result = await importHistory(importMode);
       if (!result) {
-        setStatusMessage("Import canceled");
+        setStatusMessage(copy.importCanceled);
         return;
       }
       await refreshAllEntries();
       await refreshHistory();
-      const actionLabel = result.mode === "replace" ? "replaced" : "imported";
-      setStatusMessage(`${actionLabel}: ${result.importedCount} items, skipped ${result.skippedCount}`);
+      setStatusMessage(copy.importSummary(result.mode, result.importedCount, result.skippedCount));
     } finally {
       setIsPortingData(false);
     }
@@ -328,11 +333,21 @@ export default function App() {
       <div className="quick-access-shell">
         <div className="quick-access-header">
           <div>
-            <p className="eyebrow">Quick Access</p>
-            <h2>CopyTrack popup</h2>
+            <p className="eyebrow">{copy.quickAccessEyebrow}</p>
+            <h2>{copy.quickAccessTitle}</h2>
           </div>
-          <button className="ghost-button" onClick={() => (currentWindow ? void currentWindow.hide() : undefined)} type="button">
-            Close
+          <button
+            className="ghost-button"
+            onClick={() => {
+              if (currentWindow) {
+                void currentWindow.hide();
+              } else if (typeof window !== "undefined") {
+                window.location.hash = "";
+              }
+            }}
+            type="button"
+          >
+            {copy.close}
           </button>
         </div>
 
@@ -341,30 +356,30 @@ export default function App() {
             autoFocus
             className="quick-search"
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search copied content"
+            placeholder={copy.searchQuickPlaceholder}
             value={search}
           />
           <select className="quick-select" onChange={(event) => setContentType(event.target.value)} value={contentType}>
             {contentFilters.map((filter) => (
               <option key={filter} value={filter}>
-                {filter === "all" ? "All types" : typeLabel(filter)}
+                {filter === "all" ? copy.allTypes : typeLabel(filter, uiLanguage)}
               </option>
             ))}
           </select>
         </div>
 
         <div className="quick-hint-row">
-          <span>{settings.shortcut} opens this popup</span>
-          <span>Arrow keys to navigate</span>
-          <span>Enter copies</span>
-          <span>Esc closes</span>
+          <span>{copy.quickHintOpen(settings.shortcut)}</span>
+          <span>{copy.quickHintNavigate}</span>
+          <span>{copy.quickHintEnter}</span>
+          <span>{copy.quickHintEsc}</span>
         </div>
 
         <div className="quick-access-list">
           {visibleEntries.length === 0 ? (
             <div className="empty-state compact">
-              <p>No matching clipboard items</p>
-              <span>Copy something new or widen your search.</span>
+              <p>{copy.noMatching}</p>
+              <span>{copy.widenSearch}</span>
             </div>
           ) : (
             visibleEntries.map((entry) => (
@@ -376,12 +391,12 @@ export default function App() {
                 type="button"
               >
                 <div className="quick-row-top">
-                  <span className={`type-pill type-${entry.contentType}`}>{typeLabel(entry.contentType)}</span>
-                  <span className="meta-text">{relativeDateLabel(entry.createdAt)}</span>
+                  <span className={`type-pill type-${entry.contentType}`}>{typeLabel(entry.contentType, uiLanguage)}</span>
+                  <span className="meta-text">{relativeDateLabel(entry.createdAt, uiLanguage)}</span>
                 </div>
                 <div className="quick-row-preview">{entry.previewText}</div>
                 <div className="quick-row-footer">
-                  <span>{entry.tags.length > 0 ? `#${entry.tags.join(" #")}` : "No tags yet"}</span>
+                  <span>{entry.tags.length > 0 ? `#${entry.tags.join(" #")}` : copy.noTags}</span>
                   <span>{formatBytes(entry.sizeBytes)}</span>
                 </div>
               </button>
@@ -398,15 +413,12 @@ export default function App() {
       <aside className="hero-column glass-panel">
         <div className="brand-lockup">
           <div className="brand-icon">
-            <img alt="CopyTrack icon" src="/app-icon.svg" />
+            <img alt={copy.appIconAlt} src="/app-icon.svg" />
           </div>
           <div>
-            <p className="eyebrow">Clipboard history for macOS</p>
+            <p className="eyebrow">{copy.appEyebrow}</p>
             <h1>CopyTrack</h1>
-            <p className="lede">
-              A local-first clipboard utility with quick recall, one-click re-copy, menu bar access, and a polished
-              glass-inspired interface.
-            </p>
+            <p className="lede">{copy.appDescription}</p>
           </div>
         </div>
 
@@ -416,67 +428,57 @@ export default function App() {
         </div>
 
         <div className="stats-grid">
-          <StatCard label="Saved" value={stats.total} />
-          <StatCard label="Pinned" value={stats.pinned} />
-          <StatCard label="Favorites" value={stats.favorites} />
-          <StatCard label="Limit" value={settings.historyLimit} />
+          <StatCard label={copy.saved} value={stats.total} />
+          <StatCard label={copy.pinned} value={stats.pinned} />
+          <StatCard label={copy.favorites} value={stats.favorites} />
+          <StatCard label={copy.limit} value={settings.historyLimit} />
         </div>
 
         <div className="hero-actions">
           <button className="primary-button" onClick={() => void openQuickAccess()} type="button">
-            Open Quick Access
+            {copy.openQuickAccess}
           </button>
           <button className="secondary-button" onClick={() => void setSettingsOpen(true)} type="button">
-            Open Settings
+            {copy.openSettings}
           </button>
         </div>
 
         <div className="feature-list">
-          <FeatureLine title="Quick access shortcut" value={settings.shortcut} />
-          <FeatureLine title="Launch at login" value={autostartEnabled ? "Enabled" : "Disabled"} />
-          <FeatureLine title="Capture mode" value={settings.captureEnabled ? "Recording" : "Paused"} />
-          <FeatureLine title="Theme" value={settings.theme} />
-        </div>
-
-        <div className="permission-card">
-          <p className="eyebrow">macOS Notes</p>
-          <h3>Permission guidance</h3>
-          <p>
-            If macOS prompts for clipboard access, allow CopyTrack so history capture keeps working in the background.
-            Launch-at-login uses a standard login item, and the menu bar icon stays available as the fast recovery
-            point when the main window is closed.
-          </p>
+          <FeatureLine title={copy.featureShortcut} value={settings.shortcut} />
+          <FeatureLine title={copy.featureLaunch} value={autostartEnabled ? copy.enabled : copy.disabled} />
+          <FeatureLine title={copy.featureCapture} value={settings.captureEnabled ? copy.recording : copy.paused} />
+          <FeatureLine title={copy.featureTheme} value={themeLabel} />
         </div>
       </aside>
 
       <main className="content-column glass-panel">
         <header className="toolbar">
           <div className="toolbar-copy">
-            <p className="eyebrow">History</p>
-            <h2>Find anything you copied</h2>
+            <p className="eyebrow">{copy.historyEyebrow}</p>
+            <h2>{copy.historyTitle}</h2>
           </div>
 
           <div className="toolbar-actions">
             <label className="search-field" htmlFor="history-search">
-              <span>Search</span>
+              <span>{copy.search}</span>
               <input
                 id="history-search"
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search text, links, file paths, tags"
+                placeholder={copy.searchPlaceholder}
                 value={search}
               />
             </label>
             <label className="sort-field" htmlFor="sort-mode">
-              <span>Sort</span>
+              <span>{copy.sort}</span>
               <select id="sort-mode" onChange={(event) => setSortMode(event.target.value as SortMode)} value={sortMode}>
-                <option value="recent">Most recent</option>
-                <option value="favorites">Favorites first</option>
-                <option value="type">By type</option>
-                <option value="oldest">Oldest first</option>
+                <option value="recent">{copy.sortRecent}</option>
+                <option value="favorites">{copy.sortFavorites}</option>
+                <option value="type">{copy.sortType}</option>
+                <option value="oldest">{copy.sortOldest}</option>
               </select>
             </label>
             <button className="ghost-button" onClick={() => void handleClear()} type="button">
-              Clear Unpinned
+              {copy.clearUnpinned}
             </button>
           </div>
         </header>
@@ -489,7 +491,7 @@ export default function App() {
               onClick={() => setContentType(filter)}
               type="button"
             >
-              {filter === "all" ? "All" : typeLabel(filter)}
+              {filter === "all" ? copy.all : typeLabel(filter, uiLanguage)}
             </button>
           ))}
           <button
@@ -497,14 +499,14 @@ export default function App() {
             onClick={() => setOnlyFavorites((current) => !current)}
             type="button"
           >
-            Favorites
+            {copy.favorites}
           </button>
           <button
             className={`toggle-chip ${onlyPinned ? "active" : ""}`}
             onClick={() => setOnlyPinned((current) => !current)}
             type="button"
           >
-            Pinned
+            {copy.pinned}
           </button>
           {availableTags.map((tag) => (
             <button
@@ -521,11 +523,11 @@ export default function App() {
         <div className="workspace-grid">
           <section className="history-list">
             {isLoading ? (
-              <div className="empty-state">Preparing your clipboard workspace…</div>
+              <div className="empty-state">{copy.preparing}</div>
             ) : visibleEntries.length === 0 ? (
               <div className="empty-state">
-                <p>No entries match the current view.</p>
-                <span>Copy some content or change the filters to see more history.</span>
+                <p>{copy.noEntries}</p>
+                <span>{copy.noEntriesHint}</span>
               </div>
             ) : (
               visibleEntries.map((entry) => (
@@ -536,16 +538,24 @@ export default function App() {
                   type="button"
                 >
                   <div className="history-row-top">
-                    <span className={`type-pill type-${entry.contentType}`}>{typeLabel(entry.contentType)}</span>
-                    <span className="meta-text">{relativeDateLabel(entry.createdAt)}</span>
+                    <span className={`type-pill type-${entry.contentType}`}>{typeLabel(entry.contentType, uiLanguage)}</span>
+                    <span className="meta-text">{relativeDateLabel(entry.createdAt, uiLanguage)}</span>
                   </div>
                   <div className="history-row-preview">{entry.previewText}</div>
                   <div className="history-row-footer">
                     <span>{entry.tags.length > 0 ? `#${entry.tags.join(" #")}` : formatBytes(entry.sizeBytes)}</span>
                     <div className="history-row-actions">
-                      <ActionBadge active={entry.favorite} label="Favorite" onClick={() => void handleFavorite(entry)} />
-                      <ActionBadge active={entry.pinned} label="Pin" onClick={() => void handlePin(entry)} />
-                      <ActionBadge active={false} label="Delete" onClick={() => void handleDelete(entry)} />
+                      <ActionBadge
+                        active={entry.favorite}
+                        label={entry.favorite ? copy.removeFavorite : copy.addFavorite}
+                        onClick={() => void handleFavorite(entry)}
+                      />
+                      <ActionBadge
+                        active={entry.pinned}
+                        label={entry.pinned ? copy.unpinAction : copy.pinAction}
+                        onClick={() => void handlePin(entry)}
+                      />
+                      <ActionBadge active={false} label={copy.deleteAction} onClick={() => void handleDelete(entry)} />
                     </div>
                   </div>
                 </button>
@@ -558,10 +568,10 @@ export default function App() {
               <>
                 <div className="preview-header">
                   <div>
-                    <p className="eyebrow">Preview</p>
+                    <p className="eyebrow">{copy.preview}</p>
                     <h3>{selectedEntry.previewText}</h3>
                   </div>
-                  <span className={`type-pill type-${selectedEntry.contentType}`}>{typeLabel(selectedEntry.contentType)}</span>
+                  <span className={`type-pill type-${selectedEntry.contentType}`}>{typeLabel(selectedEntry.contentType, uiLanguage)}</span>
                 </div>
 
                 {selectedEntry.imagePath ? (
@@ -573,36 +583,36 @@ export default function App() {
                 )}
 
                 <div className="preview-metadata">
-                  <MetaLine label="Copied" value={relativeDateLabel(selectedEntry.createdAt)} />
-                  <MetaLine label="Type" value={typeLabel(selectedEntry.contentType)} />
-                  <MetaLine label="Source App" value={selectedEntry.sourceApp ?? "Unavailable"} />
-                  <MetaLine label="Size" value={formatBytes(selectedEntry.sizeBytes)} />
+                  <MetaLine label={copy.copied} value={relativeDateLabel(selectedEntry.createdAt, uiLanguage)} />
+                  <MetaLine label={copy.type} value={typeLabel(selectedEntry.contentType, uiLanguage)} />
+                  <MetaLine label={copy.sourceApp} value={selectedEntry.sourceApp ?? copy.unavailable} />
+                  <MetaLine label={copy.size} value={formatBytes(selectedEntry.sizeBytes)} />
                 </div>
 
                 <label className="tag-editor" htmlFor="tag-editor">
-                  <span>Tags</span>
+                  <span>{copy.tags}</span>
                   <input
                     id="tag-editor"
                     onBlur={() => void handleTagsSave()}
                     onChange={(event) => setTagDraft(event.target.value)}
-                    placeholder="favorites, docs, reusable"
+                    placeholder={copy.tagPlaceholder}
                     value={tagDraft}
                   />
                 </label>
 
                 <div className="preview-actions">
                   <button className="primary-button" onClick={() => void handleCopy(selectedEntry)} type="button">
-                    Copy Again
+                    {copy.copyAgain}
                   </button>
                   <button className="secondary-button" onClick={() => void handleFavorite(selectedEntry)} type="button">
-                    {selectedEntry.favorite ? "Remove Favorite" : "Add Favorite"}
+                    {selectedEntry.favorite ? copy.removeFavorite : copy.addFavorite}
                   </button>
                 </div>
               </>
             ) : (
               <div className="empty-state">
-                <p>Nothing selected yet.</p>
-                <span>Choose an entry from your history to inspect it and copy it again.</span>
+                <p>{copy.nothingSelected}</p>
+                <span>{copy.nothingSelectedHint}</span>
               </div>
             )}
           </section>
@@ -614,42 +624,42 @@ export default function App() {
           <div className="settings-card glass-panel">
             <div className="settings-header">
               <div>
-                <p className="eyebrow">Preferences</p>
-                <h3>Shape CopyTrack to your workflow</h3>
+                <p className="eyebrow">{copy.preferencesEyebrow}</p>
+                <h3>{copy.preferencesTitle}</h3>
               </div>
               <button className="ghost-button" onClick={() => setSettingsOpen(false)} type="button">
-                Close
+                {copy.close}
               </button>
             </div>
 
             <div className="settings-grid">
               <label>
-                <span>Capture status</span>
+                <span>{copy.captureStatus}</span>
                 <select
                   onChange={(event) => void handleSettingsSave({ captureEnabled: event.target.value === "enabled" })}
                   value={settings.captureEnabled ? "enabled" : "paused"}
                 >
-                  <option value="enabled">Enabled</option>
-                  <option value="paused">Paused</option>
+                  <option value="enabled">{copy.enabled}</option>
+                  <option value="paused">{copy.paused}</option>
                 </select>
               </label>
 
               <label>
-                <span>History limit</span>
+                <span>{copy.historyLimit}</span>
                 <select
                   onChange={(event) => void handleSettingsSave({ historyLimit: Number(event.target.value) })}
                   value={settings.historyLimit}
                 >
                   {supportedLimits.map((value) => (
                     <option key={value} value={value}>
-                      {value} items
+                      {copy.itemsCount(value)}
                     </option>
                   ))}
                 </select>
               </label>
 
               <label>
-                <span>Quick access shortcut</span>
+                <span>{copy.shortcut}</span>
                 <input
                   onBlur={(event) => void handleSettingsSave({ shortcut: event.target.value || emptySettings.shortcut })}
                   onChange={(event) => setSettings((current) => ({ ...current, shortcut: event.target.value }))}
@@ -660,27 +670,36 @@ export default function App() {
               </label>
 
               <label>
-                <span>Launch at login</span>
+                <span>{copy.launchAtLogin}</span>
                 <select
                   onChange={(event) => void handleSettingsSave({ launchAtLogin: event.target.value === "enabled" })}
                   value={autostartEnabled ? "enabled" : "disabled"}
                 >
-                  <option value="enabled">Enabled</option>
-                  <option value="disabled">Disabled</option>
+                  <option value="enabled">{copy.enabled}</option>
+                  <option value="disabled">{copy.disabled}</option>
                 </select>
               </label>
 
               <label>
-                <span>Theme</span>
+                <span>{copy.theme}</span>
                 <select onChange={(event) => void handleSettingsSave({ theme: event.target.value })} value={settings.theme}>
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
+                  <option value="system">{copy.system}</option>
+                  <option value="light">{copy.light}</option>
+                  <option value="dark">{copy.dark}</option>
+                </select>
+              </label>
+
+              <label>
+                <span>{copy.language}</span>
+                <select onChange={(event) => void handleSettingsSave({ language: event.target.value })} value={settings.language}>
+                  <option value="system">{copy.system}</option>
+                  <option value="en">{copy.english}</option>
+                  <option value="ru">{copy.russian}</option>
                 </select>
               </label>
 
               <label className="full-width">
-                <span>Excluded apps</span>
+                <span>{copy.excludedApps}</span>
                 <textarea
                   onBlur={(event) =>
                     void handleSettingsSave({
@@ -699,7 +718,7 @@ export default function App() {
                         .filter(Boolean),
                     }))
                   }
-                  placeholder={"com.1password.1password\ncom.apple.keychainaccess"}
+                  placeholder={copy.excludedPlaceholder}
                   value={settings.excludedApps.join("\n")}
                 />
               </label>
@@ -707,48 +726,46 @@ export default function App() {
 
             <div className="settings-guidance">
               <div className="settings-guidance-card">
-                <strong>Data portability</strong>
-                <span>Export your local history to JSON or import it later in merge or replace mode.</span>
+                <strong>{copy.portabilityTitle}</strong>
+                <span>{copy.portabilityBody}</span>
               </div>
               <div className="settings-guidance-card">
-                <strong>Clipboard access</strong>
-                <span>Allow CopyTrack if macOS asks for pasteboard access, otherwise history capture may pause.</span>
+                <strong>{copy.clipboardAccessTitle}</strong>
+                <span>{copy.clipboardAccessBody}</span>
               </div>
               <div className="settings-guidance-card">
-                <strong>Menu bar workflow</strong>
-                <span>The window hides instead of closing so the menu bar icon stays available for recovery and quick access.</span>
+                <strong>{copy.menuBarTitle}</strong>
+                <span>{copy.menuBarBody}</span>
               </div>
               <div className="settings-guidance-card">
-                <strong>Login item</strong>
-                <span>Launch at login uses the system login item flow and can be disabled here at any time.</span>
+                <strong>{copy.loginItemTitle}</strong>
+                <span>{copy.loginItemBody}</span>
               </div>
             </div>
 
             <div className="portability-panel">
               <div className="portability-copy">
-                <strong>Import and export</strong>
-                <span>Use JSON snapshots to back up local history or move it into another CopyTrack install later.</span>
+                <strong>{copy.portabilityTitle}</strong>
+                <span>{copy.portabilityBody}</span>
               </div>
               <div className="portability-actions">
                 <label className="portability-select" htmlFor="import-mode">
-                  <span>Import mode</span>
+                  <span>{copy.importMode}</span>
                   <select id="import-mode" onChange={(event) => setImportMode(event.target.value as ImportMode)} value={importMode}>
-                    <option value="merge">Merge with current history</option>
-                    <option value="replace">Replace current history</option>
+                    <option value="merge">{copy.importMerge}</option>
+                    <option value="replace">{copy.importReplace}</option>
                   </select>
                 </label>
                 <button className="secondary-button" disabled={isPortingData} onClick={() => void handleExport()} type="button">
-                  Export History
+                  {copy.exportHistory}
                 </button>
                 <button className="primary-button" disabled={isPortingData} onClick={() => void handleImport()} type="button">
-                  {isPortingData ? "Working…" : "Import History"}
+                  {isPortingData ? copy.working : copy.importHistory}
                 </button>
               </div>
             </div>
 
-            <p className="settings-note">
-              Settings save on change. Shortcut updates after the field loses focus. {isSaving ? "Saving…" : "All changes are local only."}
-            </p>
+            <p className="settings-note">{copy.settingsNote(isSaving)}</p>
           </div>
         </div>
       ) : null}

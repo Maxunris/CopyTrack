@@ -8,6 +8,10 @@
   A local-first clipboard history app for macOS with quick recall, one-click re-copy, menu bar access, and a glass-inspired desktop UI.
 </p>
 
+<p align="center">
+  <strong>English</strong> · <a href="./README.ru.md">Русский</a>
+</p>
+
 ![CopyTrack main window](./docs/screenshots/main-window.png)
 
 ## Why CopyTrack
@@ -100,6 +104,7 @@ Architecture notes are in [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Current release process notes: [RELEASE.md](./RELEASE.md)
 - Future ideas and post-`1.0` expansion list: [NEXT.md](./NEXT.md)
 - Deferred sync architecture draft: [SYNC.md](./SYNC.md)
+- Competitor and feature research: [RESEARCH.md](./RESEARCH.md)
 
 For the future public `v1.0` release, the plan is to upload macOS release artifacts like `.dmg` bundles to GitHub Releases.
 

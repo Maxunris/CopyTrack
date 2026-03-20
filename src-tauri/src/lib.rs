@@ -54,6 +54,7 @@ fn save_settings(
     if !updated.shortcut.trim().is_empty() {
         apply_global_shortcut(&app, &state, &updated.shortcut)?;
     }
+    tray::refresh_tray_menu(&app, &state).map_err(|error| error.to_string())?;
     Ok(updated)
 }
 
@@ -71,13 +72,19 @@ fn toggle_favorite(id: String, favorite: bool, state: State<SharedState>) -> Res
 }
 
 #[tauri::command]
-fn delete_history_items(ids: Vec<String>, state: State<SharedState>) -> Result<(), String> {
+fn delete_history_items(
+    ids: Vec<String>,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
     state.store.delete_entries(&ids).map_err(|error| error.to_string())
+        .and_then(|_| tray::refresh_tray_menu(&app, &state).map_err(|error| error.to_string()))
 }
 
 #[tauri::command]
-fn clear_unpinned_history(state: State<SharedState>) -> Result<(), String> {
+fn clear_unpinned_history(app: tauri::AppHandle, state: State<SharedState>) -> Result<(), String> {
     state.store.clear_unpinned().map_err(|error| error.to_string())
+        .and_then(|_| tray::refresh_tray_menu(&app, &state).map_err(|error| error.to_string()))
 }
 
 #[tauri::command]
@@ -117,12 +124,17 @@ fn export_history(path: String, state: State<SharedState>) -> Result<ExportSumma
 fn import_history(
     path: String,
     mode: ImportMode,
+    app: tauri::AppHandle,
     state: State<SharedState>,
 ) -> Result<ImportSummary, String> {
     state
         .store
         .import_from_path(std::path::Path::new(&path), mode)
         .map_err(|error| error.to_string())
+        .and_then(|summary| {
+            tray::refresh_tray_menu(&app, &state).map_err(|error| error.to_string())?;
+            Ok(summary)
+        })
 }
 
 fn ensure_quick_access_window(app: &tauri::AppHandle) -> tauri::Result<()> {
