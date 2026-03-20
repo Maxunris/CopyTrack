@@ -12,7 +12,10 @@ use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::clipboard::copy_history_item;
-use crate::history::{BootstrapPayload, HistoryItem, HistoryQuery, HistoryStore, SettingsPatch, TagsPatch};
+use crate::history::{
+    BootstrapPayload, ExportSummary, HistoryItem, HistoryQuery, HistoryStore, ImportMode,
+    ImportSummary, SettingsPatch, TagsPatch,
+};
 
 #[derive(Clone)]
 pub struct SharedState {
@@ -102,6 +105,26 @@ fn open_quick_access(app: tauri::AppHandle) -> Result<(), String> {
     show_quick_access_window(&app).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn export_history(path: String, state: State<SharedState>) -> Result<ExportSummary, String> {
+    state
+        .store
+        .export_to_path(std::path::Path::new(&path))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn import_history(
+    path: String,
+    mode: ImportMode,
+    state: State<SharedState>,
+) -> Result<ImportSummary, String> {
+    state
+        .store
+        .import_from_path(std::path::Path::new(&path), mode)
+        .map_err(|error| error.to_string())
+}
+
 fn ensure_quick_access_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     if app.get_webview_window("quick-access").is_some() {
         return Ok(());
@@ -188,6 +211,7 @@ pub fn run() {
 
                     app.handle()
                         .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
+                    app.handle().plugin(tauri_plugin_dialog::init())?;
                     app.handle()
                         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))?;
                 }
@@ -216,7 +240,9 @@ pub fn run() {
             clear_unpinned_history,
             save_tags,
             copy_entry,
-            open_quick_access
+            open_quick_access,
+            export_history,
+            import_history
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -1,7 +1,9 @@
-use std::fs;
 use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -14,6 +16,7 @@ use crate::clipboard::ClipboardCapture;
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
 pub const DEFAULT_HISTORY_LIMIT: u32 = 100;
 pub const SUPPORTED_HISTORY_LIMITS: [u32; 5] = [50, 100, 500, 1000, 10000];
+pub const EXPORT_FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +93,55 @@ pub struct BootstrapPayload {
     pub settings: AppSettings,
     pub supported_history_limits: Vec<u32>,
     pub default_shortcut: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSummary {
+    pub path: String,
+    pub entry_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSummary {
+    pub path: String,
+    pub imported_count: usize,
+    pub skipped_count: usize,
+    pub mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryArchive {
+    version: u32,
+    exported_at: String,
+    settings: AppSettings,
+    entries: Vec<PortableHistoryItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PortableHistoryItem {
+    id: String,
+    content_type: String,
+    preview_text: String,
+    full_text: Option<String>,
+    image_data_base64: Option<String>,
+    file_paths: Vec<String>,
+    source_app: Option<String>,
+    created_at: String,
+    favorite: bool,
+    pinned: bool,
+    tags: Vec<String>,
+    size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportMode {
+    Merge,
+    Replace,
 }
 
 #[derive(Debug, Error)]
@@ -268,6 +320,82 @@ impl HistoryStore {
         Ok(updated)
     }
 
+    pub fn export_to_path(&self, path: &Path) -> Result<ExportSummary, StoreError> {
+        let path = normalize_export_path(path);
+        let archive = HistoryArchive {
+            version: EXPORT_FORMAT_VERSION,
+            exported_at: Utc::now().to_rfc3339(),
+            settings: self.load_settings()?,
+            entries: self
+                .list_entries(&HistoryQuery {
+                    search: None,
+                    content_type: None,
+                    only_favorites: None,
+                    only_pinned: None,
+                })?
+                .into_iter()
+                .map(|entry| self.export_item(&entry))
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+
+        fs::write(&path, serde_json::to_vec_pretty(&archive)?)?;
+        Ok(ExportSummary {
+            path: path.to_string_lossy().to_string(),
+            entry_count: archive.entries.len(),
+        })
+    }
+
+    pub fn import_from_path(&self, path: &Path, mode: ImportMode) -> Result<ImportSummary, StoreError> {
+        let archive = serde_json::from_slice::<HistoryArchive>(&fs::read(path)?)?;
+        let connection = self.connection()?;
+        let mut known_fingerprints = self.known_fingerprints()?;
+        let mut imported_count = 0usize;
+        let mut skipped_count = 0usize;
+
+        if matches!(mode, ImportMode::Replace) {
+            self.clear_all_entries()?;
+            known_fingerprints.clear();
+            self.save_settings(SettingsPatch {
+                capture_enabled: Some(archive.settings.capture_enabled),
+                history_limit: Some(archive.settings.history_limit),
+                shortcut: Some(archive.settings.shortcut.clone()),
+                theme: Some(archive.settings.theme.clone()),
+                excluded_apps: Some(archive.settings.excluded_apps.clone()),
+                launch_at_login: Some(archive.settings.launch_at_login),
+            })?;
+        }
+
+        for portable in archive.entries {
+            let Some((entry, fingerprint)) = self.import_item(portable)? else {
+                skipped_count += 1;
+                continue;
+            };
+
+            if known_fingerprints.contains(&fingerprint) {
+                skipped_count += 1;
+                continue;
+            }
+
+            persist_history_item(&connection, &entry, &fingerprint)?;
+            upsert_search_index(&connection, &entry)?;
+            known_fingerprints.insert(fingerprint);
+            imported_count += 1;
+        }
+
+        let history_limit = self.load_settings()?.history_limit;
+        self.cleanup_unpinned(history_limit)?;
+
+        Ok(ImportSummary {
+            path: path.to_string_lossy().to_string(),
+            imported_count,
+            skipped_count,
+            mode: match mode {
+                ImportMode::Merge => "merge".to_string(),
+                ImportMode::Replace => "replace".to_string(),
+            },
+        })
+    }
+
     fn search_matching_ids(&self, search: Option<&str>) -> Result<Option<HashSet<String>>, StoreError> {
         let Some(search) = search else {
             return Ok(None);
@@ -287,6 +415,34 @@ impl HistoryStore {
         }
 
         Ok(Some(matches))
+    }
+
+    fn known_fingerprints(&self) -> Result<HashSet<String>, StoreError> {
+        let connection = self.connection()?;
+        let mut statement = connection.prepare("SELECT fingerprint FROM entries")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut fingerprints = HashSet::new();
+        for row in rows {
+            fingerprints.insert(row?);
+        }
+        Ok(fingerprints)
+    }
+
+    fn clear_all_entries(&self) -> Result<(), StoreError> {
+        let connection = self.connection()?;
+        let mut statement = connection.prepare("SELECT image_path FROM entries WHERE image_path IS NOT NULL")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+
+        for row in rows {
+            let target = PathBuf::from(row?);
+            if target.exists() {
+                let _ = fs::remove_file(target);
+            }
+        }
+
+        connection.execute("DELETE FROM entries", [])?;
+        connection.execute("DELETE FROM entries_fts", [])?;
+        Ok(())
     }
 
     pub fn list_entries(&self, query: &HistoryQuery) -> Result<Vec<HistoryItem>, StoreError> {
@@ -600,6 +756,117 @@ impl HistoryStore {
             }
         }
     }
+
+    fn export_item(&self, entry: &HistoryItem) -> Result<PortableHistoryItem, StoreError> {
+        let image_data_base64 = if let Some(image_path) = &entry.image_path {
+            let bytes = fs::read(image_path)?;
+            Some(BASE64.encode(bytes))
+        } else {
+            None
+        };
+
+        Ok(PortableHistoryItem {
+            id: entry.id.clone(),
+            content_type: entry.content_type.clone(),
+            preview_text: entry.preview_text.clone(),
+            full_text: entry.full_text.clone(),
+            image_data_base64,
+            file_paths: entry.file_paths.clone(),
+            source_app: entry.source_app.clone(),
+            created_at: entry.created_at.clone(),
+            favorite: entry.favorite,
+            pinned: entry.pinned,
+            tags: entry.tags.clone(),
+            size_bytes: entry.size_bytes,
+        })
+    }
+
+    fn import_item(&self, portable: PortableHistoryItem) -> Result<Option<(HistoryItem, String)>, StoreError> {
+        let id = Uuid::new_v4().to_string();
+        let normalized_tags = portable
+            .tags
+            .into_iter()
+            .map(|tag| tag.trim().to_lowercase())
+            .filter(|tag| !tag.is_empty())
+            .collect::<Vec<_>>();
+
+        match portable.content_type.as_str() {
+            "image" => {
+                let Some(image_data_base64) = portable.image_data_base64 else {
+                    return Ok(None);
+                };
+
+                let image_bytes = BASE64
+                    .decode(image_data_base64)
+                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+                let image = image::load_from_memory(&image_bytes)?;
+                let rgba = image.to_rgba8();
+                let width = rgba.width() as usize;
+                let height = rgba.height() as usize;
+                let raw = rgba.into_raw();
+                let image_path = self.asset_dir.join(format!("{id}.png"));
+                persist_png(&image_path, &raw, width, height)?;
+
+                Ok(Some((
+                    HistoryItem {
+                        id,
+                        content_type: "image".to_string(),
+                        preview_text: portable.preview_text,
+                        full_text: None,
+                        image_path: Some(image_path.to_string_lossy().to_string()),
+                        file_paths: portable.file_paths,
+                        source_app: portable.source_app,
+                        created_at: portable.created_at,
+                        favorite: portable.favorite,
+                        pinned: portable.pinned,
+                        tags: normalized_tags,
+                        size_bytes: portable.size_bytes.max(image_bytes.len() as u64),
+                    },
+                    fingerprint_for_image(&raw, width, height),
+                )))
+            }
+            "file" => Ok(Some((
+                HistoryItem {
+                    id,
+                    content_type: "file".to_string(),
+                    preview_text: portable.preview_text,
+                    full_text: portable.full_text.clone(),
+                    image_path: None,
+                    file_paths: portable.file_paths.clone(),
+                    source_app: portable.source_app,
+                    created_at: portable.created_at,
+                    favorite: portable.favorite,
+                    pinned: portable.pinned,
+                    tags: normalized_tags,
+                    size_bytes: portable.size_bytes,
+                },
+                fingerprint_for_files(&portable.file_paths),
+            ))),
+            _ => {
+                let text = portable
+                    .full_text
+                    .clone()
+                    .unwrap_or_else(|| portable.preview_text.clone());
+                Ok(Some((
+                    HistoryItem {
+                        id,
+                        content_type: portable.content_type,
+                        preview_text: portable.preview_text,
+                        full_text: Some(text.clone()),
+                        image_path: None,
+                        file_paths: portable.file_paths,
+                        source_app: portable.source_app,
+                        created_at: portable.created_at,
+                        favorite: portable.favorite,
+                        pinned: portable.pinned,
+                        tags: normalized_tags,
+                        size_bytes: portable.size_bytes.max(text.len() as u64),
+                    },
+                    fingerprint_for_text(&text),
+                )))
+            }
+        }
+    }
 }
 
 fn persist_png(path: &Path, bytes: &[u8], width: usize, height: usize) -> Result<(), StoreError> {
@@ -607,6 +874,38 @@ fn persist_png(path: &Path, bytes: &[u8], width: usize, height: usize) -> Result
         .ok_or_else(|| std::io::Error::other("invalid image buffer"))?;
     image.save(path)?;
     Ok(())
+}
+
+fn persist_history_item(connection: &Connection, item: &HistoryItem, fingerprint: &str) -> Result<(), StoreError> {
+    connection.execute(
+        "INSERT INTO entries (
+            id, content_type, preview_text, full_text, image_path, file_paths_json, source_app, created_at, favorite, pinned, tags_json, size_bytes, fingerprint
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            item.id,
+            item.content_type,
+            item.preview_text,
+            item.full_text,
+            item.image_path,
+            serde_json::to_string(&item.file_paths)?,
+            item.source_app,
+            item.created_at,
+            bool_to_int(item.favorite),
+            bool_to_int(item.pinned),
+            serde_json::to_string(&item.tags)?,
+            item.size_bytes,
+            fingerprint,
+        ],
+    )?;
+    Ok(())
+}
+
+fn normalize_export_path(path: &Path) -> PathBuf {
+    if path.extension().is_some() {
+        path.to_path_buf()
+    } else {
+        path.with_extension("json")
+    }
 }
 
 fn basename(path: &str) -> String {
@@ -881,5 +1180,67 @@ mod tests {
         assert_eq!(search_results[0].source_app.as_deref(), Some("Notes"));
 
         fs::remove_dir_all(base_dir).expect("temp store should be removed");
+    }
+
+    #[test]
+    fn store_exports_and_imports_round_trip() {
+        let source_dir = std::env::temp_dir().join(format!("copytrack-export-source-{}", Uuid::new_v4()));
+        let target_dir = std::env::temp_dir().join(format!("copytrack-export-target-{}", Uuid::new_v4()));
+
+        let source_store = HistoryStore::new_in_dir(source_dir.clone()).expect("source store should initialize");
+        source_store
+            .save_settings(SettingsPatch {
+                capture_enabled: Some(true),
+                history_limit: Some(500),
+                shortcut: Some("CommandOrControl+Shift+V".to_string()),
+                theme: Some("dark".to_string()),
+                excluded_apps: Some(vec!["com.1password.1password".to_string()]),
+                launch_at_login: Some(true),
+            })
+            .expect("settings should save");
+        let inserted = source_store
+            .insert_capture(
+                &ClipboardCapture::Text {
+                    value: "Ship the public beta".to_string(),
+                },
+                Some("Notes".to_string()),
+            )
+            .expect("insert should succeed")
+            .expect("entry should be created");
+        source_store
+            .set_tags(&inserted.id, vec!["release".to_string(), "beta".to_string()])
+            .expect("tags should save");
+
+        let export_path = source_dir.join("copytrack-history.json");
+        let export_summary = source_store
+            .export_to_path(&export_path)
+            .expect("export should succeed");
+        assert_eq!(export_summary.entry_count, 1);
+        assert!(export_path.exists());
+
+        let target_store = HistoryStore::new_in_dir(target_dir.clone()).expect("target store should initialize");
+        let import_summary = target_store
+            .import_from_path(&export_path, ImportMode::Replace)
+            .expect("import should succeed");
+
+        assert_eq!(import_summary.imported_count, 1);
+        assert_eq!(import_summary.skipped_count, 0);
+        assert_eq!(target_store.load_settings().expect("settings should load").theme, "dark");
+
+        let imported_entries = target_store
+            .list_entries(&HistoryQuery {
+                search: Some("release beta".to_string()),
+                content_type: Some("text".to_string()),
+                only_favorites: Some(false),
+                only_pinned: Some(false),
+            })
+            .expect("search should succeed");
+
+        assert_eq!(imported_entries.len(), 1);
+        assert_eq!(imported_entries[0].source_app.as_deref(), Some("Notes"));
+        assert_eq!(imported_entries[0].tags, vec!["release".to_string(), "beta".to_string()]);
+
+        fs::remove_dir_all(source_dir).expect("source temp store should be removed");
+        fs::remove_dir_all(target_dir).expect("target temp store should be removed");
     }
 }

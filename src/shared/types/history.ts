@@ -35,3 +35,17 @@ export type BootstrapPayload = {
   supportedHistoryLimits: number[];
   defaultShortcut: string;
 };
+
+export type ImportMode = "merge" | "replace";
+
+export type ExportSummary = {
+  path: string;
+  entryCount: number;
+};
+
+export type ImportSummary = {
+  path: string;
+  importedCount: number;
+  skippedCount: number;
+  mode: ImportMode;
+};

@@ -24,6 +24,7 @@ Version `0.1.0` is focused on a strong macOS-first foundation. The long-term pla
 - Global shortcut with editable keybind
 - Menu bar presence and launch at login
 - Favorites, pins, tags, filters, and sorting
+- Import and export as JSON snapshots
 - Retention presets: `50`, `100`, `500`, `1000`, `10000`
 - Excluded apps for sensitive workflows
 - Indexed local search backed by SQLite `FTS5`
@@ -98,6 +99,7 @@ Architecture notes are in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 - Current release process notes: [RELEASE.md](./RELEASE.md)
 - Future ideas and post-`1.0` expansion list: [NEXT.md](./NEXT.md)
+- Deferred sync architecture draft: [SYNC.md](./SYNC.md)
 
 For the future public `v1.0` release, the plan is to upload macOS release artifacts like `.dmg` bundles to GitHub Releases.
 
@@ -109,6 +111,5 @@ The project already includes frontend and Rust tests for history filtering, sort
 
 - Finish the dedicated production popup flow polish
 - Improve file handling depth on macOS pasteboard
-- Add import and export
 - Add encryption and cloud sync only after the local-first core is stable
 - Expand to Windows and Linux later

@@ -10,7 +10,7 @@ This file collects ideas that are intentionally out of scope for version 1.0 but
 - Shared collections or team snippets for collaborative workflows
 - OCR for images copied into history
 - Smart snippet suggestions and duplicate grouping
-- Clipboard history import/export once the local-first core is stable
+- Richer clipboard history import/export formats beyond the current JSON snapshot flow
 
 ## Platform Expansion
 

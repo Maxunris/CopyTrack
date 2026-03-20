@@ -32,6 +32,13 @@ This checklist covers the current macOS-first desktop release.
 - Press `Escape` to close the popup
 - Change the shortcut in Settings and verify the new shortcut works
 
+## Portability
+
+- Export history to a JSON snapshot from Settings
+- Import a JSON snapshot in `merge` mode and verify existing history remains
+- Import a JSON snapshot in `replace` mode and verify current history is replaced
+- Verify imported tags, favorites, pins, and settings behave as expected
+
 ## macOS Integration
 
 - Verify the menu bar icon opens the main window

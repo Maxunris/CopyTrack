@@ -568,6 +568,39 @@ button {
   line-height: 1.5;
 }
 
+.portability-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(7, 15, 34, 0.34);
+}
+
+.portability-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.portability-copy span {
+  color: rgba(231, 238, 252, 0.72);
+  line-height: 1.5;
+}
+
+.portability-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.portability-select {
+  display: grid;
+  gap: 8px;
+  min-width: 240px;
+  flex: 1;
+}
+
 .quick-access-shell {
   display: grid;
   gap: 14px;
@@ -662,6 +695,7 @@ button {
   .toolbar,
   .hero-actions,
   .preview-actions,
+  .portability-actions,
   .settings-header,
   .quick-access-header,
   .quick-search-row {

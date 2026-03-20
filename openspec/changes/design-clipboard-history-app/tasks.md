@@ -32,8 +32,8 @@
 
 - [x] 5.1 Implement search with indexed local queries across content and metadata
 - [x] 5.2 Implement filters, tags, and sorting controls for large histories
-- [ ] 5.3 Implement import and export for supported history formats
-- [ ] 5.4 Evaluate optional sync architecture only after the local-first product is stable
+- [x] 5.3 Implement import and export for supported history formats
+- [x] 5.4 Evaluate optional sync architecture only after the local-first product is stable
 
 ## 6. Quality and Release
 

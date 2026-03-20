@@ -75,4 +75,6 @@ Images and large payloads should live on disk with metadata in SQLite. Text, lin
 - Encryption and vault mode
 - Team features
 - Windows and Linux platform packages
-- Import and export tooling
+- Advanced import and export formats beyond the current JSON snapshot flow
+
+Sync planning notes live in `SYNC.md`.

@@ -10,6 +10,8 @@ import {
   copyEntry,
   isTauriRuntime,
   deleteHistoryItems,
+  exportHistory,
+  importHistory,
   listHistory,
   openQuickAccess,
   saveSettings,
@@ -27,7 +29,7 @@ import {
   typeLabel,
   type SortMode,
 } from "./shared/lib/history";
-import type { AppSettings, HistoryItem, HistoryQuery } from "./shared/types/history";
+import type { AppSettings, HistoryItem, HistoryQuery, ImportMode } from "./shared/types/history";
 import "./App.css";
 
 type HistoryChangedPayload = {
@@ -63,8 +65,10 @@ export default function App() {
   const [supportedLimits, setSupportedLimits] = useState<number[]>([50, 100, 500, 1000, 10000]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [autostartEnabled, setAutostartEnabled] = useState(false);
+  const [importMode, setImportMode] = useState<ImportMode>("merge");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPortingData, setIsPortingData] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Watching your clipboard locally");
   const deferredSearch = useDeferredValue(search);
   const isQuickAccess = currentWindow?.label === "quick-access" || routeHash === "#quick-access";
@@ -286,6 +290,37 @@ export default function App() {
     setStatusMessage("Tags updated");
     await refreshAllEntries();
     await refreshHistory();
+  }
+
+  async function handleExport() {
+    setIsPortingData(true);
+    try {
+      const result = await exportHistory();
+      if (!result) {
+        setStatusMessage("Export canceled");
+        return;
+      }
+      setStatusMessage(`Exported ${result.entryCount} items to ${result.path.split("/").pop()}`);
+    } finally {
+      setIsPortingData(false);
+    }
+  }
+
+  async function handleImport() {
+    setIsPortingData(true);
+    try {
+      const result = await importHistory(importMode);
+      if (!result) {
+        setStatusMessage("Import canceled");
+        return;
+      }
+      await refreshAllEntries();
+      await refreshHistory();
+      const actionLabel = result.mode === "replace" ? "replaced" : "imported";
+      setStatusMessage(`${actionLabel}: ${result.importedCount} items, skipped ${result.skippedCount}`);
+    } finally {
+      setIsPortingData(false);
+    }
   }
 
   if (isQuickAccess) {
@@ -672,6 +707,10 @@ export default function App() {
 
             <div className="settings-guidance">
               <div className="settings-guidance-card">
+                <strong>Data portability</strong>
+                <span>Export your local history to JSON or import it later in merge or replace mode.</span>
+              </div>
+              <div className="settings-guidance-card">
                 <strong>Clipboard access</strong>
                 <span>Allow CopyTrack if macOS asks for pasteboard access, otherwise history capture may pause.</span>
               </div>
@@ -682,6 +721,28 @@ export default function App() {
               <div className="settings-guidance-card">
                 <strong>Login item</strong>
                 <span>Launch at login uses the system login item flow and can be disabled here at any time.</span>
+              </div>
+            </div>
+
+            <div className="portability-panel">
+              <div className="portability-copy">
+                <strong>Import and export</strong>
+                <span>Use JSON snapshots to back up local history or move it into another CopyTrack install later.</span>
+              </div>
+              <div className="portability-actions">
+                <label className="portability-select" htmlFor="import-mode">
+                  <span>Import mode</span>
+                  <select id="import-mode" onChange={(event) => setImportMode(event.target.value as ImportMode)} value={importMode}>
+                    <option value="merge">Merge with current history</option>
+                    <option value="replace">Replace current history</option>
+                  </select>
+                </label>
+                <button className="secondary-button" disabled={isPortingData} onClick={() => void handleExport()} type="button">
+                  Export History
+                </button>
+                <button className="primary-button" disabled={isPortingData} onClick={() => void handleImport()} type="button">
+                  {isPortingData ? "Working…" : "Import History"}
+                </button>
               </div>
             </div>
 

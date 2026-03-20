@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -19,6 +20,11 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
   isEnabled: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn().mockResolvedValue(null),
+  save: vi.fn().mockResolvedValue(null),
+}));
+
 import App from "./App";
 
 describe("App", () => {
@@ -37,6 +43,15 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "CopyTrack" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Find anything you copied" })).toBeInTheDocument();
     expect(await screen.findByText("Open Quick Access")).toBeInTheDocument();
+  });
+
+  it("shows import and export actions in settings", async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+
+    expect(await screen.findByRole("button", { name: "Export History" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import History" })).toBeInTheDocument();
   });
 
   it("renders the quick access surface when the quick-access hash is active", async () => {
